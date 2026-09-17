@@ -64,10 +64,14 @@
 - [x] `fold`
 - [x] `font`
 - [x] `list`
+- [x] `checkbox`
+- [x] `colordialog`（パレット指定は未対応）
 - [x] `fileCS`
 - [x] `foldCS`
 - [x] `fontCS`
 - [x] `listCS`
+- [x] `checkboxCS`
+- [x] `colordialogCS`（パレット指定は未対応）
 - [ ] `png`
 - [ ] `jpg`
 - [ ] `bmp`
@@ -178,8 +182,6 @@
   - [ ] 相対・絶対フレーム指定
   - [ ] レイヤ一覧・`"self"`・`"other"`：処理対象レイヤの指定
   - [ ] 表示・非表示の指定を反転
-- [ ] `checkbox`
-- [ ] `colordialog`
 - [ ] `parameter`
   - [ ] 数値入力・範囲・刻み幅の指定
   - [ ] チェックボックス
@@ -190,8 +192,6 @@
   - [ ] `*folder`：フォルダ選択
   - [ ] `*font`：フォント選択
   - [ ] `*color`：色選択
-- [ ] `checkboxCS`
-- [ ] `colordialogCS`
 - [ ] `parameterCS`
   - [ ] 数値入力・範囲・刻み幅の指定
   - [ ] チェックボックス

@@ -451,6 +451,37 @@ function rikky_module.font(...)
   end
 end
 
+function rikky_module.checkbox(...)
+  local indices = { ... }
+  for _, index in ipairs(indices) do
+    module.rewrite_parameter(
+      get_script_name(),
+      "anm",
+      "check",
+      index
+    )
+  end
+end
+
+function rikky_module.colordialog(...)
+  local indices = { ... }
+  local current = 1
+  while current <= #indices do
+    local index = indices[current]
+    module.rewrite_parameter(
+      get_script_name(),
+      "anm",
+      "color",
+      index
+    )
+    if type(indices[current + 1]) ~= "number" then
+      current = current + 2
+    else
+      current = current + 1
+    end
+  end
+end
+
 function rikky_module.list(...)
   local indices = { ... }
   for i = 1, #indices, 2 do
@@ -514,5 +545,37 @@ function rikky_module.listCS(...)
     )
   end
 end
+
+function rikky_module.checkboxCS(...)
+  local indices = { ... }
+  for _, index in ipairs(indices) do
+    module.rewrite_parameter(
+      get_script_name(),
+      "obj",
+      "check",
+      index
+    )
+  end
+end
+
+function rikky_module.colordialogCS(...)
+  local indices = { ... }
+  local current = 1
+  while current <= #indices do
+    local index = indices[current]
+    module.rewrite_parameter(
+      get_script_name(),
+      "anm",
+      "color",
+      index
+    )
+    if type(indices[current + 1]) ~= "number" then
+      current = current + 2
+    else
+      current = current + 1
+    end
+  end
+end
+
 
 return rikky_module
