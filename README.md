@@ -55,15 +55,19 @@
     - [ ] `3`：表示中のウィンドウ一覧
     - [ ] `4`：すべてのウィンドウ一覧
     - [ ] ウィンドウ名の取得
-  - [ ] `"count"`：処理実行回数（カウンターの加算処理は未実装）
+  - [x] `"count"`：処理実行回数（適当な単調増加値）
   - [ ] `"cache"`：キャッシュ名一覧（現在は空テーブルと `0`）
   - [ ] `"groups"`：グループ内の順番・総数・ID（現在は `0, 1, 0` 固定）
   - [x] `"font"`：フォント設定
   - [x] `"draw_state"`：描画済みかどうか
-- [ ] `file`
-- [ ] `fold`
-- [ ] `font`
-- [ ] `list`
+- [x] `file`
+- [x] `fold`
+- [x] `font`
+- [x] `list`
+- [x] `fileCS`
+- [x] `foldCS`
+- [x] `fontCS`
+- [x] `listCS`
 - [ ] `png`
 - [ ] `jpg`
 - [ ] `bmp`
@@ -186,6 +190,19 @@
   - [ ] `*folder`：フォルダ選択
   - [ ] `*font`：フォント選択
   - [ ] `*color`：色選択
+- [ ] `checkboxCS`
+- [ ] `colordialogCS`
+- [ ] `parameterCS`
+  - [ ] 数値入力・範囲・刻み幅の指定
+  - [ ] チェックボックス
+  - [ ] 文字列入力
+  - [ ] テーブル入力
+  - [ ] 型を限定しない入力
+  - [ ] `*file`：ファイル選択
+  - [ ] `*folder`：フォルダ選択
+  - [ ] `*font`：フォント選択
+  - [ ] `*color`：色選択
+- [ ] `setdialogparamCS`
 - [ ] `ObjectOrientFigure`
   - [ ] 図形オブジェクトの生成
   - [ ] `Draw`：描画
@@ -223,23 +240,6 @@
   - [ ] 2次元テーブル：別の画像データを参照して処理（0始まり・1始まり）
 - [ ] `textsplit`
 - [ ] `string2table`
-- [ ] `fileCS`
-- [ ] `foldCS`
-- [ ] `fontCS`
-- [ ] `listCS`
-- [ ] `checkboxCS`
-- [ ] `colordialogCS`
-- [ ] `parameterCS`
-  - [ ] 数値入力・範囲・刻み幅の指定
-  - [ ] チェックボックス
-  - [ ] 文字列入力
-  - [ ] テーブル入力
-  - [ ] 型を限定しない入力
-  - [ ] `*file`：ファイル選択
-  - [ ] `*folder`：フォルダ選択
-  - [ ] `*font`：フォント選択
-  - [ ] `*color`：色選択
-- [ ] `setdialogparamCS`
 - [ ] `trackbarwrite`
 - [ ] `sceneload`
   - [ ] シーン番号のみ：シーン全体のフレーム数を取得

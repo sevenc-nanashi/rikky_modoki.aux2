@@ -15,6 +15,19 @@ local function to_sjis(str)
   return sjis_str
 end
 
+-- スクリプト名を取得する。
+-- script_nameはアニメーション効果でしか使えないので、
+-- それ以外の場合 = カスタムオブジェクトではobjから位置を取得して
+-- そこからscript_nameを取得する。
+local function get_script_name()
+  local anm_name = obj.getoption("script_name")
+  if anm_name ~= "" then
+    return anm_name
+  end
+
+  return module.script_name_of(obj.layer, obj.frame_s)
+end
+
 function rikky_module.getinfo(target, option)
   if target == "version" then
     if option == nil then
@@ -215,7 +228,7 @@ function rikky_module.getinfo(target, option)
   elseif target == "dialog" then
     return obj.getoption("gui")
   elseif target == "object" then
-    local script_name = module.script_name_of(obj.layer, obj.frame)
+    local script_name = module.script_name_of(obj.layer, obj.frame_s)
     if script_name == "動画ファイル" then
       return to_sjis(script_name), {
         file = to_sjis(obj.getvalue(obj.layer, script_name, "ファイル")),
@@ -398,6 +411,107 @@ function rikky_module.getinfo(target, option)
     return obj.getoption("draw_state")
   else
     error(string.format("Unknown target: %s", tostring(target)))
+  end
+end
+
+-- TODO: anm以外のものにも対応したい
+function rikky_module.file(...)
+  local indices = { ... }
+  for _, index in ipairs(indices) do
+    module.rewrite_parameter(
+      get_script_name(),
+      "anm",
+      "file",
+      index
+    )
+  end
+end
+
+function rikky_module.fold(...)
+  local indices = { ... }
+  for _, index in ipairs(indices) do
+    module.rewrite_parameter(
+      get_script_name(),
+      "anm",
+      "font",
+      index
+    )
+  end
+end
+
+function rikky_module.font(...)
+  local indices = { ... }
+  for _, index in ipairs(indices) do
+    module.rewrite_parameter(
+      get_script_name(),
+      "anm",
+      "font",
+      index
+    )
+  end
+end
+
+function rikky_module.list(...)
+  local indices = { ... }
+  for i = 1, #indices, 2 do
+    local index = indices[i]
+    local choices = indices[i + 1]
+    module.rewrite_select_parameter(
+      get_script_name(),
+      "anm",
+      index,
+      choices
+    )
+  end
+end
+
+function rikky_module.fileCS(...)
+  local indices = { ... }
+  for _, index in ipairs(indices) do
+    module.rewrite_parameter(
+      get_script_name(),
+      "obj",
+      "file",
+      index
+    )
+  end
+end
+
+function rikky_module.foldCS(...)
+  local indices = { ... }
+  for _, index in ipairs(indices) do
+    module.rewrite_parameter(
+      get_script_name(),
+      "obj",
+      "font",
+      index
+    )
+  end
+end
+
+function rikky_module.fontCS(...)
+  local indices = { ... }
+  for _, index in ipairs(indices) do
+    module.rewrite_parameter(
+      get_script_name(),
+      "obj",
+      "font",
+      index
+    )
+  end
+end
+
+function rikky_module.listCS(...)
+  local indices = { ... }
+  for i = 1, #indices, 2 do
+    local index = indices[i]
+    local choices = indices[i + 1]
+    module.rewrite_select_parameter(
+      get_script_name(),
+      "obj",
+      index,
+      choices
+    )
   end
 end
 
