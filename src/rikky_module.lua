@@ -577,5 +577,64 @@ function rikky_module.colordialogCS(...)
   end
 end
 
+local function parameter(value, index, definition, extension)
+  assert(type(index) == "number" and index >= 1 and index == math.floor(index), "Invalid parameter index")
+  assert(
+    type(definition) == "table" and #definition > 0 and #definition % 4 == 0,
+    "Parameter definitions must contain groups of four values"
+  )
+  local count = #definition / 4
+  if type(value) == "table" then
+    return unpack(value, 1, count)
+  end
+  assert(type(value) == "string", "Parameter value must be a string or a generated value table")
+
+  local entries = {}
+  local defaults = {}
+  for i = 1, #definition, 4 do
+    local label, source, minimum, maximum = definition[i], definition[i + 1], definition[i + 2], definition[i + 3]
+    assert(type(label) == "string" and label ~= "" and not label:find("[,\r\n]"), "Invalid parameter label")
+    assert(type(source) == "string" and not source:find("[\r\n]"), "Invalid parameter default")
+    assert(
+      type(minimum) == "number"
+        and type(maximum) == "number"
+        and minimum > -math.huge
+        and maximum < math.huge
+        and minimum <= maximum,
+      "Invalid parameter range"
+    )
+    local evaluate = assert(loadstring("return (" .. source .. "\n)", "parameter default"))
+    local initial = evaluate()
+    local initial_type = type(initial)
+    local normalized
+    if initial_type == "string" then
+      normalized = string.format("%q", initial):gsub("\\\n", "\\n")
+    elseif initial_type == "number" then
+      assert(initial > -math.huge and initial < math.huge, "Invalid numeric default")
+      normalized = string.format("%.17g", initial)
+    elseif initial_type == "boolean" or initial_type == "nil" then
+      normalized = tostring(initial)
+    else
+      assert(initial_type == "table", "Unsupported parameter default type")
+      normalized = source
+    end
+    defaults[(i + 3) / 4] = initial
+    entries[i] = label
+    entries[i + 1] = normalized
+    entries[i + 2] = string.format("%.17g", minimum)
+    entries[i + 3] = string.format("%.17g", maximum)
+  end
+
+  module.rewrite_group_parameter(get_script_name(), extension, index, entries)
+  return unpack(defaults, 1, count)
+end
+
+function rikky_module.parameter(value, index, definition)
+  return parameter(value, index, definition, "anm")
+end
+
+function rikky_module.parameterCS(value, index, definition)
+  return parameter(value, index, definition, "obj")
+end
 
 return rikky_module
