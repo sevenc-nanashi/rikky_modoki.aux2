@@ -637,6 +637,10 @@ function rikky_module.parameterCS(value, index, definition)
   return parameter(value, index, definition, "obj")
 end
 
+function rikky_module.find(value, needle)
+  return (string.find(value, needle, 1, true))
+end
+
 function rikky_module.type(...)
   local values = { ... }
   for i = 1, select("#", ...) do
