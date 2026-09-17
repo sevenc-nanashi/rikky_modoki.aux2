@@ -97,6 +97,71 @@ impl RikkyModokiMod2 {
         Ok(cow.into_owned())
     }
 
+    fn image_write(
+        &self,
+        id: String,
+        data: *const u8,
+        width: usize,
+        height: usize,
+        alpha: f64,
+        only_empty: bool,
+    ) -> aviutl2::common::AnyResult<bool> {
+        // SAFETY: Lua側がgetpixeldataの結果、または呼び出し元のuserdataと寸法を渡す。
+        unsafe { crate::image::write(id, data, width, height, alpha, only_empty) }
+    }
+
+    fn image_copy(&self, destination: String, source: String, only_empty: bool) -> bool {
+        crate::image::copy(destination, &source, only_empty)
+    }
+
+    fn image_read(&self, id: String, export: bool) -> Option<crate::image::ImageRead> {
+        crate::image::read(&id, export)
+    }
+
+    fn image_release(
+        &self,
+        lease: aviutl2::module::ScriptModuleUserData<crate::image::ImageLease>,
+    ) {
+        crate::image::release(lease);
+    }
+
+    fn image_delete(&self, id: Option<String>) -> bool {
+        crate::image::delete(id.as_deref())
+    }
+
+    fn image_ids(&self, count: usize) -> aviutl2::common::AnyResult<Vec<String>> {
+        crate::image::ids(count)
+    }
+
+    fn image_merge(
+        &self,
+        back: String,
+        front: String,
+        x: i32,
+        y: i32,
+        export: bool,
+    ) -> Option<crate::image::ImageRead> {
+        crate::image::merge(&back, &front, x, y, export)
+    }
+
+    fn image_channels(
+        &self,
+        lease: aviutl2::module::ScriptModuleUserData<crate::image::ImageLease>,
+    ) -> aviutl2::common::AnyResult<(Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>)> {
+        crate::image::channels(lease)
+    }
+
+    fn image_pixel(
+        &self,
+        data: *const u8,
+        width: usize,
+        height: usize,
+        index: f64,
+    ) -> aviutl2::common::AnyResult<Option<(u8, u8, u8, u8)>> {
+        // SAFETY: 取得中の画像はLua側のlease、外部userdataは呼び出し元が保持する。
+        unsafe { crate::image::pixel(data, width, height, index) }
+    }
+
     fn rewrite_parameter(
         &self,
         script_name: String,

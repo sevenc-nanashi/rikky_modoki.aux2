@@ -1,3 +1,4 @@
+mod image;
 mod module;
 
 pub static EDIT_HANDLE: aviutl2::generic::GlobalEditHandle =

@@ -649,4 +649,167 @@ function rikky_module.type(...)
   return unpack(values)
 end
 
+local function image_key(id)
+  if type(id) == "string" then
+    assert(not id:find("\0", 1, true), "Image ID contains NUL")
+    return "s:" .. id
+  end
+  assert(type(id) == "number" and id > -math.huge and id < math.huge, "Invalid image ID")
+  if id == 0 then
+    id = 0
+  end -- -0 と 0 は同じID。
+  return "n:" .. string.format("%.17g", id)
+end
+
+local function image_integer(value, minimum, maximum)
+  assert(
+    type(value) == "number" and value == math.floor(value) and value >= minimum and value <= maximum,
+    "Invalid image integer"
+  )
+  return value
+end
+
+local function load_image(data, width, height, lease, reset)
+  if reset and not obj.load("figure", "四角形", 0, 1) then
+    module.image_release(lease)
+    return false
+  end
+  obj.clearbuffer("object", width, height)
+  obj.putpixeldata("object", data, width, height, "rgba")
+  module.image_release(lease)
+  return true
+end
+
+function rikky_module.image(mode, id, a, b, c, d)
+  if mode == "w" or mode == "w+" then
+    local key = image_key(id)
+    local target = "object"
+    if mode == "w" and a ~= nil then
+      assert(a == "object" or a == "tempbuffer", "Invalid image buffer")
+      target = a
+    end
+    local data, width, height = obj.getpixeldata(target, "rgba")
+    if data == nil or width == 0 or height == 0 then
+      return false
+    end
+    local alpha = 1
+    if mode == "w+" then
+      alpha = obj.alpha * obj.getvalue("alpha")
+    end
+    return module.image_write(key, data, width, height, alpha, false)
+  elseif mode == "r" or mode == "r+" or mode == "i" or mode == "i+" then
+    local data, width, height, lease = module.image_read(image_key(id), mode == "i")
+    if data == nil then
+      return false
+    end
+    if mode == "i" then
+      module.image_release(lease)
+      return data, width, height
+    elseif mode == "i+" then
+      local r, g, blue, alpha = module.image_channels(lease)
+      module.image_release(lease)
+      return { A = alpha, R = r, G = g, B = blue }, width, height
+    end
+    return load_image(data, width, height, lease, mode == "r")
+  elseif mode == "c" then
+    return module.image_delete(image_key(id))
+  elseif mode == "c+" then
+    return module.image_delete(nil)
+  elseif mode == "g" or mode == "g+" then
+    local count = 0
+    local single = false
+    if mode == "g" then
+      if id == nil or id == 0 then
+        count, single = 1, true
+      else
+        count = image_integer(id, 1, 2147483647)
+      end
+    end
+    local ids = module.image_ids(count)
+    for i, key in ipairs(ids) do
+      if key:sub(1, 2) == "n:" then
+        ids[i] = tonumber(key:sub(3))
+      else
+        ids[i] = to_sjis(key:sub(3))
+      end
+    end
+    if single then
+      return ids[1]
+    end
+    return ids
+  elseif mode == "m" or mode == "m+" then
+    if b == nil then
+      b = 0
+    end
+    if c == nil then
+      c = 0
+    end
+    local x = image_integer(b, -2147483648, 2147483647)
+    local y = image_integer(c, -2147483648, 2147483647)
+    local data, width, height, lease = module.image_merge(image_key(id), image_key(a), x, y, mode == "m")
+    if data == nil then
+      return false
+    end
+    if mode == "m" then
+      module.image_release(lease)
+      return data, width, height
+    end
+    return load_image(data, width, height, lease, false)
+  elseif mode == "p" or mode == "p+" then
+    local key = image_key(id)
+    if type(a) == "userdata" then
+      local width = image_integer(b, 1, 2147483647)
+      local height = image_integer(c, 1, 2147483647)
+      return module.image_write(key, a, width, height, 1, mode == "p+")
+    end
+    return module.image_copy(key, image_key(a), mode == "p+")
+  elseif mode == "u" or mode == "u+" then
+    local data, width, height, lease, y
+    local x = image_integer(a, -9007199254740991, 9007199254740991)
+    if type(id) == "userdata" then
+      data = id
+      if d == nil then
+        width, height = b, c
+      else
+        y, width, height = b, c, d
+      end
+      width = image_integer(width, 1, 2147483647)
+      height = image_integer(height, 1, 2147483647)
+    else
+      y = b
+    end
+    if y ~= nil then
+      y = image_integer(y, -9007199254740991, 9007199254740991)
+    end
+    if data == nil then
+      data, width, height, lease = module.image_read(image_key(id), false)
+      if data == nil then
+        return false
+      end
+    end
+    local index = x
+    if y ~= nil then
+      if x < 1 or x > width or y < 1 or y > height then
+        if lease ~= nil then
+          module.image_release(lease)
+        end
+        return false
+      end
+      index = (y - 1) * width + x - 1
+    end
+    local r, g, blue, alpha = module.image_pixel(data, width, height, index)
+    if lease ~= nil then
+      module.image_release(lease)
+    end
+    if r == nil then
+      return false
+    end
+    if mode == "u+" then
+      return r, g, blue, alpha
+    end
+    return r * 65536 + g * 256 + blue, alpha / 255
+  end
+  error("Unknown image mode: " .. tostring(mode))
+end
+
 return rikky_module
