@@ -1,0 +1,14 @@
+[package]
+name = "rikky_modoki-aux2"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+name = "rikky_modoki_aux2"
+
+[dependencies]
+anyhow = "1.0.104"
+aviutl2 = "0.46.1"
+dirs = "7.0.0"
+tracing = "0.1.44"

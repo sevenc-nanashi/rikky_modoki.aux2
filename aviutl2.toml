@@ -1,0 +1,43 @@
+#:schema ./.aviutl2-cli/aviutl2.schema.json
+# 設定ファイルについては https://github.com/sevenc-nanashi/aviutl2-cli を参照してください。
+[project]
+id = "sevenc-nanashi.rikky_modoki-aux2"
+name = "rikky_modoki.aux2"
+version = "0.1.0"
+
+[development]
+aviutl2_version = "latest"
+catalog_dependencies = ["KuroNeko.CopyAlias"]
+
+[artifacts.rikky_module]
+source = "src/rikky_module.lua"
+destination = "Script/rikky_module.lua"
+
+[artifacts.rikky_modoki-obj2]
+source = "src/rikky_modoki.lua"
+destination = "Script/rikky_modoki.obj2"
+
+[artifacts.rikky_modoki-aux2]
+destination = "Plugin/rikky_modoki.aux2"
+
+[artifacts.rikky_modoki-aux2.profiles.debug]
+source = "target/debug/rikky_modoki_aux2.dll"
+build = "cargo build"
+
+[artifacts.rikky_modoki-aux2.profiles.release]
+source = "target/release/rikky_modoki_aux2.dll"
+build = "cargo build --release"
+
+[artifacts.rikky_modoki2-obj2]
+source = "src/rikky_modoki2.lua"
+destination = "Script/rikky_modoki2.obj2"
+
+[artifacts.rikky_modoki2-obj2.profiles.release]
+enabled = false
+
+[artifacts.unsafe_script]
+source = "src/unsafe_script.lua"
+destination = "Script/unsafe_script.anm2"
+
+[artifacts.unsafe_script.profiles.release]
+enabled = false
