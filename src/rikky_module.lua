@@ -637,4 +637,12 @@ function rikky_module.parameterCS(value, index, definition)
   return parameter(value, index, definition, "obj")
 end
 
+function rikky_module.type(...)
+  local values = { ... }
+  for i = 1, select("#", ...) do
+    values[i] = type(values[i])
+  end
+  return unpack(values)
+end
+
 return rikky_module
