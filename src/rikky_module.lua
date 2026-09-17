@@ -1,6 +1,20 @@
 local module = obj.module("rikky_modoki")
 rikky_module = {}
 
+local function to_sjis(str)
+  local sjis_bytes = module.to_sjis(str)
+  local sjis_str = ""
+  local stack_size = 100
+  for i = 1, #sjis_bytes, stack_size do
+    local chunk = {}
+    for j = i, math.min(i + stack_size - 1, #sjis_bytes) do
+      table.insert(chunk, string.char(sjis_bytes[j]))
+    end
+    sjis_str = sjis_str .. table.concat(chunk)
+  end
+  return sjis_str
+end
+
 function rikky_module.getinfo(target, option)
   if target == "version" then
     if option == nil then
@@ -22,9 +36,9 @@ function rikky_module.getinfo(target, option)
   elseif target == "aup" then
     if option == 1 then
       -- basename_only
-      return module.project_path(true)
+      return to_sjis(module.project_path(true))
     else
-      return module.project_path(false)
+      return to_sjis(module.project_path(false))
     end
   elseif target == "output" then
     -- 出力中のファイル名を返すが、AviUtl2にはそういうAPIがないので断念
@@ -33,9 +47,9 @@ function rikky_module.getinfo(target, option)
     return module.edit_state()
   elseif target == "path" then
     if option == 2 then
-      return module.desktop_dir()
+      return to_sjis(module.desktop_dir())
     else
-      return module.aviutl2_dir()
+      return to_sjis(module.project_dir())
     end
   elseif target == "focus" then
     -- NOTE: 本来はcall_read_sectionで自身が選択されているかを見たほうがいいはず
@@ -74,7 +88,7 @@ function rikky_module.getinfo(target, option)
         print("@warn", "Unknown blend mode: " .. tostring(value))
         return -1
       end
-    elseif option == 2 then
+    else
       local value = obj.getoption("blend")
       if value == "none" then
         return 0
@@ -185,9 +199,9 @@ function rikky_module.getinfo(target, option)
     if option == nil then
       -- obj.load("text")のテキストも返すらしいが、一旦パス...
       -- フックしてあげればできそうではあるが面倒
-      return obj.getvalue("テキスト", "テキスト")
+      return to_sjis(obj.getvalue("テキスト", "テキスト"))
     else
-      return obj.getvalue(option, "テキスト", "テキスト")
+      return to_sjis(obj.getvalue(option, "テキスト", "テキスト"))
     end
   elseif target == "buffer" then
     local buffer = obj.getoption("drawtarget")
@@ -199,21 +213,21 @@ function rikky_module.getinfo(target, option)
       error("Unknown buffer type: " .. tostring(buffer))
     end
   elseif target == "dialog" then
-    return true
+    return obj.getoption("gui")
   elseif target == "object" then
     local script_name = module.script_name_of(obj.layer, obj.frame)
     if script_name == "動画ファイル" then
-      return script_name, {
-        file = obj.getvalue(obj.layer, script_name, "ファイル"),
+      return to_sjis(script_name), {
+        file = to_sjis(obj.getvalue(obj.layer, script_name, "ファイル")),
         loop = tonumber(obj.getvalue(obj.layer, script_name, "ループ再生")),
         alphachannel = 1
       }
     elseif script_name == "画像ファイル" then
-      return script_name, {
-        file = obj.getvalue(obj.layer, script_name, "ファイル"),
+      return to_sjis(script_name), {
+        file = to_sjis(obj.getvalue(obj.layer, script_name, "ファイル")),
       }
     elseif script_name == "テキスト" then
-      return script_name, {
+      return to_sjis(script_name), {
         color = tonumber(obj.getvalue(obj.layer, script_name, "文字色"), 16),
         color2 = tonumber(obj.getvalue(obj.layer, script_name, "影・縁色"), 16),
         type = ({
@@ -251,7 +265,7 @@ function rikky_module.getinfo(target, option)
         spacing_x = tonumber(obj.getvalue(obj.layer, script_name, "字間")),
         spacing_y = tonumber(obj.getvalue(obj.layer, script_name, "行間")),
         presision = 1,
-        font = obj.getvalue(obj.layer, script_name, "フォント"),
+        font = to_sjis(obj.getvalue(obj.layer, script_name, "フォント")),
         individual = tonumber(obj.getvalue(obj.layer, script_name, "文字毎に個別オブジェクト")),
         display = tonumber(obj.getvalue(obj.layer, script_name, "移動座標上に表示")),
         autoscroll = tonumber(obj.getvalue(obj.layer, script_name, "自動スクロール")),
@@ -259,12 +273,12 @@ function rikky_module.getinfo(target, option)
         italic = tonumber(obj.getvalue(obj.layer, script_name, "I")),
       }
     elseif script_name == "図形" then
-      return script_name, {
+      return to_sjis(script_name), {
         color = tonumber(obj.getvalue(obj.layer, script_name, "色"), 16),
-        figure = obj.getvalue(obj.layer, script_name, "図形の種類"),
+        figure = to_sjis(obj.getvalue(obj.layer, script_name, "図形の種類")),
       }
     elseif script_name == "フレームバッファ" then
-      return script_name, {
+      return to_sjis(script_name), {
         bufferclear = tonumber(obj.getvalue(obj.layer, script_name, "フレームバッファをクリア")),
       }
     elseif script_name == "音声波形表示" then
@@ -285,11 +299,11 @@ function rikky_module.getinfo(target, option)
       else
         wave_type = 1
       end
-      return "音声波形", {
+      return to_sjis("音声波形"), {
         color = tonumber(obj.getvalue(obj.layer, script_name, "波形の色"), 16),
         projectsound = file and 0 or 1,
         type = wave_type,
-        file = file,
+        file = file and to_sjis(file),
         mode = mode,
         res_w = tonumber(obj.getvalue(obj.layer, script_name, "横解像度")),
         res_h = tonumber(obj.getvalue(obj.layer, script_name, "縦解像度")),
@@ -298,18 +312,18 @@ function rikky_module.getinfo(target, option)
         mirror = mirror,
       }
     elseif script_name == "シーン" then
-      return script_name, {
+      return to_sjis(script_name), {
         scenenumber = tonumber(obj.getvalue(obj.layer, script_name, "シーン")),
         loop = tonumber(obj.getvalue(obj.layer, script_name, "ループ再生")),
       }
     elseif script_name == "カメラ制御" then
-      return script_name, {
+      return to_sjis(script_name), {
         zbuffer = 1
       }
     elseif script_name == "直前オブジェクト" or script_name == "フィルタオブジェクト" or script_name == "グループ制御" then
-      return script_name, {}
+      return to_sjis(script_name), {}
     else
-      return "カスタムオブジェクト"
+      return to_sjis("カスタムオブジェクト")
     end
   elseif target == "start_end" then
     return obj.frame_s, obj.frame_e
@@ -336,14 +350,16 @@ function rikky_module.getinfo(target, option)
 
     local result = {}
     for i = #prevs, 1, -1 do
-      table.insert(result, prevs[i])
+      table.insert(result, to_sjis(prevs[i]))
     end
-    table.insert(result, obj.getoption("script_name"))
+    table.insert(result, to_sjis(obj.getoption("script_name")))
     for i = 1, #afters do
-      table.insert(result, afters[i])
+      table.insert(result, to_sjis(afters[i]))
     end
 
     return result, #prevs + 1, #result
+  elseif target == "shadow" then
+    return 0
   elseif target == "antialias" then
     return 1
   elseif target == "culling" then
@@ -353,8 +369,11 @@ function rikky_module.getinfo(target, option)
   elseif target == "force" then
     -- これもフックをしないと取得できないので、適当に0を返す
     return 0
+  elseif target == "input" then
+    -- 読み込み可能な拡張子の一覧は取得が面倒すぎる
+    return {}
   elseif target == "hwnd" then
-    return module.hwnd()
+    return module.hwnd(), ""
   elseif target == "count" then
     -- 適当な単調増加の値を返す
     return module.counter()
@@ -367,7 +386,7 @@ function rikky_module.getinfo(target, option)
   elseif target == "font" then
     local name, size, style_type, col1, col2, bold, italic = obj.getfont()
     return {
-      name = name,
+      name = to_sjis(name),
       size = size,
       bold = bold,
       italic = italic,

@@ -50,13 +50,13 @@ impl RikkyModokiMod2 {
         let dir = path.parent().ok_or_else(|| {
             anyhow::anyhow!("Failed to get parent directory of the executable path")
         })?;
-        Ok(dir.to_string_lossy().to_string())
+        Ok(format!("{}\\", dir.to_string_lossy()))
     }
 
     fn desktop_dir(&self) -> aviutl2::common::AnyResult<String> {
         let desktop_dir = dirs::desktop_dir()
             .ok_or_else(|| anyhow::anyhow!("Failed to get the desktop directory"))?;
-        Ok(desktop_dir.to_string_lossy().to_string())
+        Ok(format!("{}\\", desktop_dir.to_string_lossy()))
     }
 
     fn scene_id(&self) -> i32 {
@@ -82,6 +82,11 @@ impl RikkyModokiMod2 {
     }
 
     fn counter(&self) -> usize {
-        crate::COUNTER.load(std::sync::atomic::Ordering::SeqCst)
+        COUNTER.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn to_sjis(&self, input: String) -> aviutl2::common::AnyResult<Vec<u8>> {
+        let (cow, _, _) = encoding_rs::SHIFT_JIS.encode(&input);
+        Ok(cow.into_owned())
     }
 }
