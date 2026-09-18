@@ -140,6 +140,40 @@ impl RikkyModokiMod2 {
         Ok(cow.into_owned())
     }
 
+    fn convert_to_codes(
+        &self,
+        input: Vec<u8>,
+        unicode: bool,
+    ) -> aviutl2::common::AnyResult<Vec<u16>> {
+        let text = encoding_rs::SHIFT_JIS
+            .decode_without_bom_handling_and_without_replacement(&input)
+            .ok_or_else(|| anyhow::anyhow!("Invalid Shift-JIS sequence"))?;
+        Ok(if unicode {
+            text.encode_utf16().collect()
+        } else {
+            text.bytes().map(u16::from).collect()
+        })
+    }
+
+    fn convert_from_codes(
+        &self,
+        input: Vec<u16>,
+        unicode: bool,
+    ) -> aviutl2::common::AnyResult<Vec<u8>> {
+        let text = if unicode {
+            String::from_utf16(&input)?
+        } else {
+            let bytes = input
+                .into_iter()
+                .map(u8::try_from)
+                .collect::<Result<Vec<_>, _>>()?;
+            String::from_utf8(bytes)?
+        };
+        let (bytes, _, errors) = encoding_rs::SHIFT_JIS.encode(&text);
+        anyhow::ensure!(!errors, "Text cannot be represented in Shift-JIS");
+        Ok(bytes.into_owned())
+    }
+
     fn image_write(
         &self,
         id: String,

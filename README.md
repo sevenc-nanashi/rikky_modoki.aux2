@@ -110,12 +110,12 @@
 - [x] `assign`（グローバル変数が対象）
   - [x] `"make"`：変数への代入（文字列・数値・真偽値・テーブル）
   - [x] `"copy"`：変数の値を取得（未定義なら `nil`）
-- [ ] `convert`
-  - [ ] `"shift-jis"`：文字列と Shift-JIS コードのテーブルを相互変換
-  - [ ] `"unicode"`：文字列と Unicode コードのテーブルを相互変換
-  - [ ] `"utf8"`：文字列と UTF-8 コードのテーブルを相互変換
-  - [ ] `"hex"`・`"HEX"`：Unicode の16進数表記
-  - [ ] `"big"`・`"little"`：Unicode のバイト順指定
+- [x] `convert`
+  - [x] `"shift-jis"`：文字列と Shift-JIS バイト列のテーブルを相互変換
+  - [x] `"unicode"`：文字列と UTF-16 コード単位のテーブルを相互変換
+  - [x] `"utf8"`：文字列と UTF-8 バイト列のテーブルを相互変換
+  - [x] `"hex"`・`"HEX"`：Unicode の16進数表記
+  - [x] `"big"`・`"little"`：Unicode のバイト順指定
 - [ ] `datasave`
 - [x] `textload`（`obj.load("text")` と同様、テキストオブジェクト内では使用不可）
   - [x] 第2引数：左・中央・右揃え
