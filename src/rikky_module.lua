@@ -812,4 +812,288 @@ function rikky_module.image(mode, id, a, b, c, d)
   error("Unknown image mode: " .. tostring(mode))
 end
 
+local function finite_number(value)
+  assert(type(value) == "number" and value > -math.huge and value < math.huge, "Expected a finite number")
+  return value
+end
+
+local function clamp(value, minimum, maximum)
+  return math.max(minimum, math.min(maximum, value))
+end
+
+local function unit_vector(x, y, z)
+  x, y, z = finite_number(x), finite_number(y), finite_number(z)
+  local scale = math.max(math.abs(x), math.abs(y), math.abs(z))
+  assert(scale > 0, "Rotation axis must not be zero")
+  x, y, z = x / scale, y / scale, z / scale
+  local length = math.sqrt(x * x + y * y + z * z)
+  return x / length, y / length, z / length
+end
+
+local function rotation_matrix(x, y, z, angle)
+  x, y, z = unit_vector(x, y, z)
+  angle = finite_number(angle)
+  local s, c = math.sin(angle), math.cos(angle)
+  local t = 1 - c
+  return {
+    c + x * x * t,
+    x * y * t - z * s,
+    x * z * t + y * s,
+    y * x * t + z * s,
+    c + y * y * t,
+    y * z * t - x * s,
+    z * x * t - y * s,
+    z * y * t + x * s,
+    c + z * z * t,
+  }
+end
+
+local function multiply_matrix(a, b)
+  local result = {}
+  for row = 0, 2 do
+    for column = 1, 3 do
+      result[row * 3 + column] = a[row * 3 + 1] * b[column]
+        + a[row * 3 + 2] * b[column + 3]
+        + a[row * 3 + 3] * b[column + 6]
+    end
+  end
+  return result
+end
+
+local function aviutl_angles(matrix, radians)
+  -- AviUtl の回転は Rx * Ry * Rz（座標にはZ、Y、Xの順に適用）。
+  -- 旧版と同じく cos(Y) <= 0 の解を選ぶ。
+  local cosine = math.sqrt(matrix[1] * matrix[1] + matrix[2] * matrix[2])
+  local y = math.atan2(matrix[3], -cosine)
+  local x, z
+  if cosine > 1e-8 then
+    x = math.atan2(matrix[6], -matrix[9])
+    z = math.atan2(matrix[2], -matrix[1])
+  else
+    -- ジンバルロック時は分離できないX/Zを、同じ姿勢になるZ=-piに固定する。
+    x, z = math.atan2(matrix[8], matrix[5]) + math.pi, -math.pi
+  end
+  x = (x + math.pi) % (2 * math.pi) - math.pi
+  y = (y + math.pi) % (2 * math.pi) - math.pi
+  z = (z + math.pi) % (2 * math.pi) - math.pi
+  if radians == 1 then
+    return x, y, z
+  end
+  return math.deg(x), math.deg(y), math.deg(z)
+end
+
+local previous_rotation, previous_center
+
+function rikky_module.rotation(x, y, z, angle, axis, center)
+  x, y, z = finite_number(x), finite_number(y), finite_number(z)
+  if angle ~= nil then
+    if axis == "X" then
+      axis = { 1, 0, 0 }
+    elseif axis == "Y" then
+      axis = { 0, 1, 0 }
+    elseif axis == "Z" then
+      axis = { 0, 0, 1 }
+    end
+    assert(type(axis) == "table", "Invalid rotation axis")
+    local matrix = rotation_matrix(axis[1], axis[2], axis[3], angle)
+    if center == nil then
+      center = { 0, 0, 0 }
+    end
+    assert(type(center) == "table", "Invalid rotation center")
+    local origin = { finite_number(center[1]), finite_number(center[2]), finite_number(center[3]) }
+    previous_rotation, previous_center = matrix, origin
+  else
+    assert(axis == nil and center == nil and previous_rotation ~= nil, "No previous rotation")
+  end
+  local m, origin = previous_rotation, previous_center
+  x, y, z = x - origin[1], y - origin[2], z - origin[3]
+  return m[1] * x + m[2] * y + m[3] * z + origin[1],
+    m[4] * x + m[5] * y + m[6] * z + origin[2],
+    m[7] * x + m[8] * y + m[9] * z + origin[3]
+end
+
+function rikky_module.axisconvertEx(axes, radians, moving)
+  assert(type(axes) == "table" and #axes % 4 == 0, "Axes must contain groups of four numbers")
+  if radians == nil then
+    radians = 0
+  end
+  if moving == nil then
+    moving = 0
+  end
+  assert(radians == 0 or radians == 1, "Invalid angle unit")
+  assert(moving == 0 or moving == 1, "Invalid moving-axis option")
+  local basis = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
+  if axes.Xx ~= nil or axes.Xy ~= nil or axes.Xz ~= nil or axes.Yx ~= nil or axes.Yy ~= nil or axes.Yz ~= nil then
+    local xx, xy, xz = unit_vector(axes.Xx, axes.Xy, axes.Xz)
+    local yx, yy, yz = unit_vector(axes.Yx, axes.Yy, axes.Yz)
+    assert(math.abs(xx * yx + xy * yy + xz * yz) < 1e-6, "Initial axes must be orthogonal")
+    basis = { xx, yx, xy * yz - xz * yy, xy, yy, xz * yx - xx * yz, xz, yz, xx * yy - xy * yx }
+  end
+  local matrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
+  for i = 1, #axes, 4 do
+    local angle = finite_number(axes[i + 3])
+    if radians == 0 then
+      angle = math.rad(angle)
+    end
+    local x, y, z = finite_number(axes[i]), finite_number(axes[i + 1]), finite_number(axes[i + 2])
+    local rotation = rotation_matrix(x, y, z, angle)
+    if moving == 1 then
+      axes[i] = matrix[1] * x + matrix[2] * y + matrix[3] * z
+      axes[i + 1] = matrix[4] * x + matrix[5] * y + matrix[6] * z
+      axes[i + 2] = matrix[7] * x + matrix[8] * y + matrix[9] * z
+      matrix = multiply_matrix(matrix, rotation)
+    else
+      matrix = multiply_matrix(rotation, matrix)
+    end
+  end
+  return aviutl_angles(multiply_matrix(matrix, basis), radians)
+end
+
+function rikky_module.axisconvert(axes, radians)
+  assert(type(axes) == "table", "Expected an axis table")
+  return rikky_module.axisconvertEx({
+    finite_number(axes.Zx),
+    finite_number(axes.Zy),
+    finite_number(axes.Zz),
+    finite_number(axes.rz),
+    finite_number(axes.Yx),
+    finite_number(axes.Yy),
+    finite_number(axes.Yz),
+    finite_number(axes.ry),
+    finite_number(axes.Xx),
+    finite_number(axes.Xy),
+    finite_number(axes.Xz),
+    finite_number(axes.rx),
+    Xx = axes.Xx,
+    Xy = axes.Xy,
+    Xz = axes.Xz,
+    Yx = axes.Yx,
+    Yy = axes.Yy,
+    Yz = axes.Yz,
+  }, radians, 0)
+end
+
+local function rgb_color(r, g, b)
+  return RGB(math.floor(clamp(r, 0, 255) + 0.5), math.floor(clamp(g, 0, 255) + 0.5), math.floor(clamp(b, 0, 255) + 0.5))
+end
+
+local function rgb_to_xyz(r, g, b)
+  -- 旧版はRGB成分を線形値として扱い、ガンマ補正を行わない。
+  r, g, b = r / 255 * 100, g / 255 * 100, b / 255 * 100
+  return 0.412391 * r + 0.357584 * g + 0.180481 * b,
+    0.212639 * r + 0.715169 * g + 0.072192 * b,
+    0.019331 * r + 0.119195 * g + 0.950532 * b
+end
+
+local function xyz_color(x, y, z)
+  x, y, z = x / 100 * 255, y / 100 * 255, z / 100 * 255
+  return rgb_color(
+    3.24096637658435 * x - 1.53737885234726 * y - 0.498611723228325 * z,
+    -0.969242037979635 * x + 1.87596526849091 * y + 0.041555768342051 * z,
+    0.0556295671173938 * x - 0.203976940895256 * y + 1.0569716994422 * z
+  )
+end
+
+local function lab_curve(value)
+  if value > (6 / 29) ^ 3 then
+    return value ^ (1 / 3)
+  end
+  return value / (3 * (6 / 29) ^ 2) + 4 / 29
+end
+
+local function inverse_lab_curve(value)
+  if value > 6 / 29 then
+    return value ^ 3
+  end
+  return 3 * (6 / 29) ^ 2 * (value - 4 / 29)
+end
+
+function rikky_module.colorconvert(mode, a, b, c, d)
+  a = finite_number(a)
+  if b == nil and c == nil and d == nil then
+    assert(a >= 0 and a <= 0xffffff and a == math.floor(a), "Invalid RGB color")
+    local r, g, blue = RGB(a)
+    if mode == "rgb" then
+      return r, g, blue
+    elseif mode == "hsv" then
+      return HSV(a)
+    elseif mode == "opposite" then
+      return RGB(255 - r, 255 - g, 255 - blue)
+    elseif mode == "complemntary" or mode == "complementary" then
+      local hue, saturation, value = HSV(a)
+      return HSV((hue + 180) % 360, saturation, value)
+    elseif mode == "hsl" then
+      local high, low = math.max(r, g, blue) / 255, math.min(r, g, blue) / 255
+      local lightness = (high + low) / 2
+      local saturation = 0
+      if high ~= low then
+        saturation = (high - low) / (1 - math.abs(2 * lightness - 1))
+      end
+      return HSV(a), saturation * 100, lightness * 100
+    elseif mode == "yc" then
+      r, g, blue = r / 255, g / 255, blue / 255
+      local y = 0.299 * r + 0.587 * g + 0.114 * blue
+      return math.floor(y * 4096 + 0.5),
+        math.floor((blue - y) / 1.772 * 4096 + 0.5),
+        math.floor((r - y) / 1.402 * 4096 + 0.5)
+    elseif mode == "xyz" then
+      return rgb_to_xyz(r, g, blue)
+    elseif mode == "lab" then
+      local x, y, z = rgb_to_xyz(r, g, blue)
+      x, y, z = lab_curve(x / 95.0456), lab_curve(y / 100), lab_curve(z / 108.9058)
+      return 116 * y - 16, 500 * (x - y), 200 * (y - z)
+    elseif mode == "cmy" then
+      return (1 - r / 255) * 100, (1 - g / 255) * 100, (1 - blue / 255) * 100
+    elseif mode == "cmyk" then
+      local high = math.max(r, g, blue)
+      if high == 0 then
+        return 0, 0, 0, 100
+      end
+      return (1 - r / high) * 100, (1 - g / high) * 100, (1 - blue / high) * 100, (1 - high / 255) * 100
+    end
+  else
+    b, c = finite_number(b), finite_number(c)
+    if mode == "cmyk" then
+      d = finite_number(d)
+    else
+      assert(d == nil, "Unexpected fourth color component")
+    end
+    if mode == "rgb" then
+      return rgb_color(a, b, c)
+    elseif mode == "hsv" then
+      return HSV(a % 360, clamp(b, 0, 100), clamp(c, 0, 100))
+    elseif mode == "hsl" then
+      local saturation, lightness = clamp(b, 0, 100) / 100, clamp(c, 0, 100) / 100
+      local value = lightness + saturation * math.min(lightness, 1 - lightness)
+      if value == 0 then
+        return 0
+      end
+      return HSV(a % 360, 2 * (1 - lightness / value) * 100, value * 100)
+    elseif mode == "yc" then
+      local y, cb, cr = a / 4096, b / 4096, c / 4096
+      local r, blue = y + 1.402 * cr, y + 1.772 * cb
+      return rgb_color(r * 255, (y - 0.299 * r - 0.114 * blue) / 0.587 * 255, blue * 255)
+    elseif mode == "xyz" then
+      return xyz_color(a, b, c)
+    elseif mode == "lab" then
+      local y = (a + 16) / 116
+      return xyz_color(
+        95.0456 * inverse_lab_curve(y + b / 500),
+        100 * inverse_lab_curve(y),
+        108.9058 * inverse_lab_curve(y - c / 200)
+      )
+    elseif mode == "cmy" then
+      return rgb_color((1 - a / 100) * 255, (1 - b / 100) * 255, (1 - c / 100) * 255)
+    elseif mode == "cmyk" then
+      local black = 1 - clamp(d, 0, 100) / 100
+      return rgb_color(
+        (1 - clamp(a, 0, 100) / 100) * black * 255,
+        (1 - clamp(b, 0, 100) / 100) * black * 255,
+        (1 - clamp(c, 0, 100) / 100) * black * 255
+      )
+    end
+  end
+  error("Unknown color conversion: " .. tostring(mode))
+end
+
 return rikky_module
