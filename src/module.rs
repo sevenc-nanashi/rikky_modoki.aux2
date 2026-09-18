@@ -29,6 +29,38 @@ impl RikkyModokiMod2 {
         cfg!(debug_assertions)
     }
 
+    fn sound_receiving(&self, frame: u32) -> bool {
+        crate::sound::receiving(frame)
+    }
+
+    fn sound_length(&self, file: String) -> aviutl2::common::AnyResult<Option<f64>> {
+        crate::sound::length(&file)
+    }
+
+    #[allow(clippy::too_many_arguments)] // soundregisterの引数に描画フレームを添えて渡す。
+    fn sound_register(
+        &self,
+        origin_frame: u32,
+        file: String,
+        frame: f64,
+        volume: f64,
+        speed: f64,
+        pan: f64,
+        reverse: bool,
+    ) -> aviutl2::common::AnyResult<bool> {
+        crate::sound::register(
+            origin_frame,
+            crate::sound::Sound {
+                file,
+                frame,
+                volume,
+                speed,
+                pan,
+                reverse,
+            },
+        )
+    }
+
     fn project_path(&self, basename_only: bool) -> aviutl2::common::AnyResult<String> {
         let project_path = PROJECT_PATH.lock().unwrap();
         if let Some(path) = &*project_path {

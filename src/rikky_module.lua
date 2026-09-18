@@ -907,6 +907,43 @@ local function finite_number(value)
   return value
 end
 
+function rikky_module.soundregister(...)
+  local count = select("#", ...)
+  if count == 0 then
+    return module.sound_receiving(obj.originframe)
+  end
+  local file, frame, volume, speed, pan, reverse = ...
+  if type(file) ~= "string" or file == "" then
+    return nil
+  end
+  if count == 1 then
+    local length = module.sound_length(file)
+    if length == nil then
+      return false
+    end
+    return length
+  end
+  if not module.sound_receiving(obj.originframe) then
+    return false
+  end
+  if pan == nil then
+    pan = 0
+  end
+  if reverse == nil then
+    reverse = false
+  end
+  assert(type(reverse) == "boolean", "Expected a reverse flag")
+  return module.sound_register(
+    obj.originframe,
+    file,
+    finite_number(frame),
+    finite_number(volume),
+    finite_number(speed),
+    finite_number(pan),
+    reverse
+  )
+end
+
 function rikky_module.textload(text, alignment, center, orientation, font, size)
   assert(type(text) == "string", "Expected text")
   if alignment == nil then
