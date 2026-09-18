@@ -660,6 +660,28 @@ function rikky_module.type(...)
   return unpack(values)
 end
 
+function rikky_module.assign(mode, name, value)
+  assert(mode == "make" or mode == "copy", "Unknown assign mode")
+  local valid_name = type(name) == "string"
+    and name:match("^[A-Za-z_][A-Za-z0-9_]*$")
+    and loadstring("local " .. name) ~= nil
+  if mode == "copy" then
+    if valid_name then
+      return _G[name]
+    end
+    return nil
+  end
+  local value_type = type(value)
+  if
+    not valid_name
+    or (value_type ~= "string" and value_type ~= "number" and value_type ~= "boolean" and value_type ~= "table")
+  then
+    return false
+  end
+  _G[name] = value
+  return true
+end
+
 local function image_key(id)
   if type(id) == "string" then
     assert(not id:find("\0", 1, true), "Image ID contains NUL")
