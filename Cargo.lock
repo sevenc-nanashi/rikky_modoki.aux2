@@ -756,6 +756,7 @@ dependencies = [
  "native-dialog",
  "sweeplsd",
  "tracing",
+ "windows",
 ]
 
 [[package]]

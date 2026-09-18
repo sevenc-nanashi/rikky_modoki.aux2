@@ -1,5 +1,6 @@
 mod image;
 mod module;
+mod progress;
 mod sound;
 
 pub static EDIT_HANDLE: aviutl2::generic::GlobalEditHandle =
@@ -52,6 +53,7 @@ impl aviutl2::generic::GenericPlugin for RikkyModoki {
     fn on_project_load(&mut self, _project: &mut aviutl2::generic::ProjectFile) {
         crate::module::COUNTER.store(0, std::sync::atomic::Ordering::SeqCst);
         sound::reset();
+        progress::end();
     }
 
     fn event_update_object_info(&mut self) {
@@ -64,6 +66,14 @@ impl aviutl2::generic::GenericPlugin for RikkyModoki {
 
     fn on_clear_cache(&mut self, _edit: &aviutl2::generic::EditSection) {
         sound::reset();
+        progress::end();
+    }
+}
+
+impl Drop for RikkyModoki {
+    fn drop(&mut self) {
+        sound::shutdown();
+        progress::end();
     }
 }
 

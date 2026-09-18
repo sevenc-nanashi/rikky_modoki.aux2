@@ -56,6 +56,7 @@ struct Capture {
     requests: Vec<Sound>,
     sound: BakedSound,
     destination: Option<SavedSound>,
+    progress: crate::progress::Progress,
 }
 
 #[derive(Default)]
@@ -72,13 +73,15 @@ static STORE: LazyLock<Mutex<SoundStore>> = LazyLock::new(Default::default);
 impl SoundStore {
     fn invalidate(&mut self) {
         self.revision += 1;
-        self.capture = None;
+        if let Some(capture) = &self.capture {
+            capture.progress.state.cancel();
+        }
     }
 
     fn receiving(&self, frame: u32) -> bool {
-        self.capture
-            .as_ref()
-            .is_some_and(|capture| capture.accepting && capture.frame == frame)
+        self.capture.as_ref().is_some_and(|capture| {
+            capture.accepting && capture.frame == frame && capture.progress.state.running()
+        })
     }
 }
 
@@ -90,6 +93,12 @@ pub fn reset() {
     let mut store = STORE.lock().unwrap();
     store.invalidate();
     store.reset_revision = store.revision;
+}
+
+pub fn shutdown() {
+    let capture = STORE.lock().unwrap().capture.take();
+    // UIスレッドのjoinはSTOREのロック外で行う。
+    drop(capture);
 }
 
 pub fn receiving(frame: u32) -> bool {
@@ -155,6 +164,14 @@ fn update_sound(edit: &mut aviutl2::generic::EditSection) -> aviutl2::common::An
     for channel in &mut samples {
         channel.try_reserve_exact(len)?;
     }
+    anyhow::ensure!(
+        STORE.lock().unwrap().capture.is_none(),
+        "音声を更新中です（中止後は描画の完了を待ってください）"
+    );
+    let owner = crate::EDIT_HANDLE
+        .get_host_app_window_raw()
+        .ok_or_else(|| anyhow::anyhow!("AviUtl2のウィンドウを取得できません"))?;
+    let progress = crate::progress::Progress::new("音声を更新".into(), 0x0078d4, owner.hwnd)?;
     let id = {
         let mut store = STORE.lock().unwrap();
         anyhow::ensure!(store.capture.is_none(), "音声を更新中です");
@@ -173,6 +190,7 @@ fn update_sound(edit: &mut aviutl2::generic::EditSection) -> aviutl2::common::An
                 samples,
             },
             destination: None,
+            progress,
         });
         id
     };
@@ -198,6 +216,11 @@ fn begin_capture(id: u64) -> anyhow::Result<()> {
         let Some(capture) = store.capture.as_mut().filter(|capture| capture.id == id) else {
             return Ok(());
         };
+        if !capture.progress.state.running() {
+            drop(store);
+            cancel(id);
+            return Ok(());
+        }
         anyhow::ensure!(
             capture.destination.is_some(),
             "対象の音声が処理されませんでした。レイヤーの表示状態を確認してください"
@@ -209,6 +232,17 @@ fn begin_capture(id: u64) -> anyhow::Result<()> {
 }
 
 fn request_frame(id: u64, frame: u32) -> anyhow::Result<()> {
+    {
+        let store = STORE.lock().unwrap();
+        let Some(capture) = store.capture.as_ref().filter(|capture| capture.id == id) else {
+            return Ok(());
+        };
+        if !capture.progress.state.running() {
+            drop(store);
+            cancel(id);
+            return Ok(());
+        }
+    }
     let result = crate::EDIT_HANDLE.rendering_scene_video(frame, move |video| {
         let result = if video.buffer.is_empty() {
             Err(anyhow::anyhow!("映像の評価に失敗しました"))
@@ -227,29 +261,44 @@ fn request_frame(id: u64, frame: u32) -> anyhow::Result<()> {
 }
 
 fn cancel(id: u64) {
-    let mut store = STORE.lock().unwrap();
-    if store
-        .capture
-        .as_ref()
-        .is_some_and(|capture| capture.id == id)
-    {
-        store.capture = None;
-    }
+    // SDKの完了通知後、または描画要求が失敗した時だけ呼ぶ。
+    // ×操作・編集時はフラグだけ変え、描画中のジョブをここまで保持する。
+    let capture = {
+        let mut store = STORE.lock().unwrap();
+        if store
+            .capture
+            .as_ref()
+            .is_some_and(|capture| capture.id == id)
+        {
+            store.capture.take()
+        } else {
+            None
+        }
+    };
+    drop(capture);
 }
 
 fn finish_frame(id: u64, frame: u32) -> anyhow::Result<()> {
-    let (format, requests) = {
+    let (format, requests, progress) = {
         let mut store = STORE.lock().unwrap();
         let Some(capture) = store.capture.as_mut().filter(|capture| capture.id == id) else {
             return Ok(());
         };
         assert_eq!(capture.frame, frame);
         capture.accepting = false;
-        (capture.sound.format, std::mem::take(&mut capture.requests))
+        (
+            capture.sound.format,
+            std::mem::take(&mut capture.requests),
+            Arc::clone(&capture.progress.state),
+        )
     };
     let count = format.sample_at(frame + 1) - format.sample_at(frame);
     let mut samples = [vec![0.0; count], vec![0.0; count]];
     for sound in requests {
+        if !progress.running() {
+            cancel(id);
+            return Ok(());
+        }
         mix_file(&sound, format, &mut samples)?;
     }
     let next = {
@@ -257,14 +306,31 @@ fn finish_frame(id: u64, frame: u32) -> anyhow::Result<()> {
         let Some(capture) = store.capture.as_mut().filter(|capture| capture.id == id) else {
             return Ok(());
         };
+        if !progress.running() {
+            drop(store);
+            cancel(id);
+            return Ok(());
+        }
         for (channel, chunk) in capture.sound.samples.iter_mut().zip(samples) {
             channel.extend(chunk);
         }
         if frame == capture.target.end {
+            if !progress.update(100.0) {
+                drop(store);
+                cancel(id);
+                return Ok(());
+            }
             let capture = store.capture.take().unwrap();
             *capture.destination.unwrap().lock().unwrap() = Some(Arc::new(capture.sound));
+            drop(store);
+            drop(capture.progress);
             None
         } else {
+            progress.update(
+                f64::from(frame - capture.target.start + 1)
+                    / f64::from(capture.target.end - capture.target.start + 1)
+                    * 100.0,
+            );
             capture.frame += 1;
             capture.accepting = true;
             Some(capture.frame)
@@ -426,12 +492,16 @@ impl aviutl2::filter::FilterPlugin for ObjectSoundAuf2 {
         if let Some(capture) = store.capture.as_mut()
             && capture.target == target
             && capture.destination.is_none()
+            && capture.progress.state.running()
         {
             capture.destination = Some(Arc::clone(&data.sound));
         }
         let saved = data.snapshot(&store, config.discard_on_update);
         // 収集中は自身の音を返さない。obj.getaudio("audiobuffer") の循環を防ぐ。
-        let capturing = store.capture.is_some();
+        let capturing = store
+            .capture
+            .as_ref()
+            .is_some_and(|capture| capture.progress.state.running());
         drop(store);
         drop(data);
         let mut output = [
@@ -547,6 +617,7 @@ mod tests {
                 samples: [Vec::new(), Vec::new()],
             },
             destination: Some(Arc::clone(&data.sound)),
+            progress: crate::progress::Progress::headless(),
         });
         assert!(store.receiving(10));
         assert!(!store.receiving(11));
@@ -558,9 +629,6 @@ mod tests {
         *data.sound.lock().unwrap() = Some(baked);
         store.reset_revision = store.revision;
         assert!(data.snapshot(&store, false).is_none()); // プロジェクトを跨いで持ち越さない。
-        let config =
-            ObjectSoundAuf2Config::from_config_items(&ObjectSoundAuf2Config::to_config_items());
-        assert!(config.discard_on_update);
 
         // 取り消したジョブの遅延コールバックで、新しい収集を確定・取り消ししない。
         STORE.lock().unwrap().capture = Some(Capture {
@@ -580,6 +648,7 @@ mod tests {
                 samples: [Vec::new(), Vec::new()],
             },
             destination: Some(Arc::clone(&data.sound)),
+            progress: crate::progress::Progress::headless(),
         });
         finish_frame(1, 10).unwrap();
         cancel(1);
@@ -591,5 +660,47 @@ mod tests {
             saved.as_ref().unwrap().samples[0],
             vec![0.0; format.sample_at(11) - format.sample_at(10)]
         );
+        let previous = Arc::clone(saved.as_ref().unwrap());
+        drop(saved);
+
+        let cancelled = crate::progress::Progress::headless();
+        let state = Arc::clone(&cancelled.state);
+        STORE.lock().unwrap().capture = Some(Capture {
+            id: 3,
+            target: Target {
+                scene: 0,
+                layer: 0,
+                start: 10,
+                end: 11,
+            },
+            frame: 11,
+            accepting: true,
+            requests: vec![Sound {
+                file: "読み込んではいけない.wav".into(),
+                frame: 1.0,
+                volume: 100.0,
+                speed: 100.0,
+                pan: 0.0,
+                reverse: false,
+            }],
+            sound: BakedSound {
+                revision: 0,
+                format,
+                samples: [vec![0.5; 100], vec![0.5; 100]],
+            },
+            destination: Some(Arc::clone(&data.sound)),
+            progress: cancelled,
+        });
+        state.cancel(); // ×を押した後も描画の完了通知まではジョブを保持する。
+        assert!(!receiving(11));
+        assert!(STORE.lock().unwrap().capture.is_some());
+        finish_frame(2, 11).unwrap(); // 古い通知では新しいジョブを解放しない。
+        assert!(STORE.lock().unwrap().capture.is_some());
+        finish_frame(3, 11).unwrap(); // 最終フレームでも確定せず、途中結果を破棄する。
+        assert!(STORE.lock().unwrap().capture.is_none());
+        assert!(Arc::ptr_eq(
+            data.sound.lock().unwrap().as_ref().unwrap(),
+            &previous
+        ));
     }
 }

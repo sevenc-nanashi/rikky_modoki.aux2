@@ -29,6 +29,22 @@ impl RikkyModokiMod2 {
         cfg!(debug_assertions)
     }
 
+    fn progress_start(&self, title: String, color: u32) -> bool {
+        let Some(owner) = crate::EDIT_HANDLE.get_host_app_window_raw() else {
+            tracing::error!("AviUtl2のウィンドウを取得できません");
+            return false;
+        };
+        crate::progress::start(title, color, owner.hwnd)
+    }
+
+    fn progress_processing(&self, percent: f64) -> bool {
+        crate::progress::processing(percent)
+    }
+
+    fn progress_end(&self) -> bool {
+        crate::progress::end()
+    }
+
     fn sound_receiving(&self, frame: u32) -> bool {
         crate::sound::receiving(frame)
     }
