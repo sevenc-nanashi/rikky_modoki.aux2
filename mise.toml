@@ -1,2 +1,4 @@
 [tools]
 "cargo:aviutl2-cli" = "latest"
+"cargo:cargo-edit" = "latest"
+"github:EmbarkStudios/cargo-about" = "latest"
