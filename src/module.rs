@@ -205,6 +205,31 @@ impl RikkyModokiMod2 {
         unsafe { crate::image::pixel(data, width, height, index) }
     }
 
+    fn bordering(
+        &self,
+        data: *const u8,
+        width: usize,
+        height: usize,
+        skip: usize,
+        threshold: f64,
+        hq: bool,
+    ) -> aviutl2::common::AnyResult<(Vec<usize>, Vec<usize>)> {
+        // SAFETY: Lua側でgetpixeldataの直後に呼び出し、その間画像を変更しない。
+        unsafe { crate::image::bordering(data, width, height, skip, threshold, hq) }
+    }
+
+    fn linedetection(
+        &self,
+        data: *const u8,
+        width: usize,
+        height: usize,
+        scale: f64,
+        background: u32,
+    ) -> aviutl2::common::AnyResult<Vec<f64>> {
+        // SAFETY: Lua側でgetpixeldataの直後に呼び出し、その間画像を変更しない。
+        unsafe { crate::image::linedetection(data, width, height, scale, background) }
+    }
+
     fn rewrite_parameter(
         &self,
         script_name: String,

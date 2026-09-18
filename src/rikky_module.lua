@@ -893,6 +893,87 @@ local function multiply_matrix(a, b)
   return result
 end
 
+function rikky_module.bordering(resolution, threshold, is_zoom, is_rotate, hq)
+  local skip = 0
+  if type(resolution) == "number" then
+    skip = math.floor(clamp(finite_number(resolution), 0, 5000))
+  end
+  if type(threshold) ~= "number" then
+    threshold = 0
+  end
+  local pixel = resolution == "pixel"
+  local zoom = 1
+  if not pixel and (is_zoom == true or is_zoom == 1) then
+    zoom = obj.getvalue("zoom") * obj.zoom / 100
+  end
+  local matrix
+  if not pixel and (is_rotate == true or is_rotate == 1) then
+    matrix = multiply_matrix(
+      rotation_matrix(1, 0, 0, math.rad(obj.rx)),
+      multiply_matrix(rotation_matrix(0, 1, 0, math.rad(obj.ry)), rotation_matrix(0, 0, 1, math.rad(obj.rz)))
+    )
+  end
+  local data, width, height = obj.getpixeldata("object", "rgba")
+  if data == nil or width == 0 or height == 0 then
+    return {}, {}, 0
+  end
+  local indices, counts = module.bordering(data, width, height, skip, threshold, hq == true or hq == 1)
+  local points, offset = {}, 1
+  for i, count in ipairs(counts) do
+    local contour = {}
+    for j = 1, count do
+      local index = indices[offset]
+      offset = offset + 1
+      local x, y = index % width, math.floor(index / width)
+      if not pixel then
+        x, y = (x + (1 - width) / 2) * zoom, (y + (1 - height) / 2) * zoom
+      end
+      if matrix then
+        contour[j * 3 - 2] = matrix[1] * x + matrix[2] * y
+        contour[j * 3 - 1] = matrix[4] * x + matrix[5] * y
+        contour[j * 3] = matrix[7] * x + matrix[8] * y
+      else
+        contour[j * 2 - 1], contour[j * 2] = x, y
+      end
+    end
+    points[i] = contour
+  end
+  return points, counts, #counts
+end
+
+function rikky_module.linedetection(precision, background, centered)
+  if precision == nil then
+    precision = 80
+  end
+  assert(finite_number(precision) > 0, "Detection precision must be positive")
+  if background == nil then
+    background = 0
+  end
+  background = image_integer(background, 0, 0xFFFFFF)
+  local data, width, height = obj.getpixeldata("object", "rgba")
+  if data == nil or width == 0 or height == 0 then
+    return false
+  end
+  local coordinates = module.linedetection(data, width, height, precision / 100, background)
+  if #coordinates == 0 then
+    return false
+  end
+  local ox, oy = 0, 0
+  if centered == true then
+    ox, oy = width / 2, height / 2
+  end
+  local lines = {}
+  for i = 1, #coordinates, 4 do
+    lines[#lines + 1] = {
+      x0 = coordinates[i] - ox,
+      y0 = coordinates[i + 1] - oy,
+      x1 = coordinates[i + 2] - ox,
+      y1 = coordinates[i + 3] - oy,
+    }
+  end
+  return lines, #lines
+end
+
 local function aviutl_angles(matrix, radians)
   -- AviUtl の回転は Rx * Ry * Rz（座標にはZ、Y、Xの順に適用）。
   -- 旧版と同じく cos(Y) <= 0 の解を選ぶ。

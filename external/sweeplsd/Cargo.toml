@@ -1,0 +1,13 @@
+[package]
+name = "sweeplsd"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Rust bindings for the SweepLSD line segment detector"
+links = "sweeplsd"
+
+[dependencies]
+anyhow = "1.0.104"
+
+[build-dependencies]
+cc = "1.2.57"

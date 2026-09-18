@@ -204,3 +204,171 @@ pub unsafe fn pixel(
     let rgba = unsafe { std::slice::from_raw_parts(data.add(index as usize * 4), 4) };
     Ok(Some((rgba[0], rgba[1], rgba[2], rgba[3])))
 }
+
+/// data は width * height * 4 バイトの読み取り可能なRGBAデータを指すこと。
+/// 輪郭ごとのピクセル位置を連結した配列と、各輪郭の点数を返す。
+pub unsafe fn bordering(
+    data: *const u8,
+    width: usize,
+    height: usize,
+    skip: usize,
+    threshold: f64,
+    hq: bool,
+) -> anyhow::Result<(Vec<usize>, Vec<usize>)> {
+    anyhow::ensure!(
+        (0.0..=100.0).contains(&threshold),
+        "Invalid alpha threshold"
+    );
+    if width == 0 || height == 0 {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let len = byte_len(width, height)?;
+    anyhow::ensure!(!data.is_null(), "Image data is null");
+    // SAFETY: getpixeldataのポインタが有効な間に輪郭を抽出する。
+    let pixels = unsafe { std::slice::from_raw_parts(data, len) };
+    let threshold = ((threshold * 2.55) as u8).min(254);
+    let opaque = |index: usize| pixels[index * 4 + 3] > threshold;
+    // 左上から反時計回り。外周と穴の向きは最初に探す方向で決まる。
+    let directions = [
+        (-1, -1),
+        (-1, 0),
+        (-1, 1),
+        (0, 1),
+        (1, 1),
+        (1, 0),
+        (1, -1),
+        (0, -1),
+    ];
+    let neighbor = |index: usize, direction: usize| {
+        let (dx, dy) = directions[direction];
+        let x = (index % width).checked_add_signed(dx)?;
+        let y = (index / width).checked_add_signed(dy)?;
+        (x < width && y < height).then_some(y * width + x)
+    };
+    let mut boundary: Vec<bool> = (0..len / 4)
+        .map(|index| {
+            opaque(index)
+                && [1, 3, 5, 7]
+                    .into_iter()
+                    .any(|direction| neighbor(index, direction).is_none_or(|next| !opaque(next)))
+        })
+        .collect();
+    let mut visited = vec![0_u8; boundary.len()];
+    let mut contour = Vec::new();
+    let mut points = Vec::new();
+    let mut counts = Vec::new();
+    for start in 0..boundary.len() {
+        if !boundary[start] {
+            continue;
+        }
+        contour.clear();
+        contour.push(start);
+        let mut current = start;
+        let mut direction = if neighbor(start, 7).is_none_or(|above| !opaque(above)) {
+            2
+        } else {
+            4
+        };
+        loop {
+            // 枝分かれした輪郭でも、同じ位置・方向の巡回で停止できるようにする。
+            if visited[current] & (1 << direction) != 0 {
+                break;
+            }
+            visited[current] |= 1 << direction;
+            let Some((mut next, found)) = (0..8).find_map(|offset| {
+                let candidate = (direction + offset) % 8;
+                let next = neighbor(current, candidate)?;
+                boundary[next].then_some((next, candidate))
+            }) else {
+                break;
+            };
+            direction = (found + 6 + found % 2) % 8;
+            if hq && found % 2 == 0 {
+                let adjacent = neighbor(current, (found + 1) % 8).unwrap();
+                if opaque(adjacent) {
+                    next = adjacent;
+                    direction = (found + 7) % 8;
+                }
+            }
+            if next == start {
+                break;
+            }
+            contour.push(next);
+            current = next;
+        }
+        // 元の実装と同じく、間引き前に5点以上ある輪郭だけを返す。
+        if contour.len() > 4 {
+            let before = points.len();
+            points.extend(contour.iter().step_by(skip.min(5000) + 1).copied());
+            counts.push(points.len() - before);
+        }
+        for &index in &contour {
+            boundary[index] = false;
+            visited[index] = 0;
+        }
+    }
+    Ok((points, counts))
+}
+
+/// data は width * height * 4 バイトの読み取り可能なRGBAデータを指すこと。
+pub unsafe fn linedetection(
+    data: *const u8,
+    width: usize,
+    height: usize,
+    scale: f64,
+    background: u32,
+) -> anyhow::Result<Vec<f64>> {
+    anyhow::ensure!(scale.is_finite() && scale > 0.0, "Invalid detection scale");
+    anyhow::ensure!(background <= 0xffffff, "Invalid background color");
+    if width == 0 || height == 0 {
+        return Ok(Vec::new());
+    }
+    let len = byte_len(width, height)?;
+    anyhow::ensure!(!data.is_null(), "Image data is null");
+    let scaled_width = (width as f64 * scale).ceil();
+    let scaled_height = (height as f64 * scale).ceil();
+    anyhow::ensure!(
+        scaled_width <= (i32::MAX - 8) as f64
+            && scaled_height <= (i32::MAX - 8) as f64
+            && scaled_width * scaled_height <= i32::MAX as f64,
+        "Scaled image is too large"
+    );
+    // 検出器は周囲3pxを除外するため、幅または高さが6px以下なら線分はない。
+    if scaled_width <= 6.0 || scaled_height <= 6.0 {
+        return Ok(Vec::new());
+    }
+    // SAFETY: getpixeldataのポインタが有効な間に入力画像を参照する。
+    let pixels = unsafe { std::slice::from_raw_parts(data, len) };
+    let base = 0.299 * f64::from((background >> 16) & 255)
+        + 0.587 * f64::from((background >> 8) & 255)
+        + 0.114 * f64::from(background & 255);
+    let gray = |x: usize, y: usize| {
+        let p = &pixels[(y * width + x) * 4..][..4];
+        base + (0.299 * f64::from(p[0]) + 0.587 * f64::from(p[1]) + 0.114 * f64::from(p[2]) - base)
+            * f64::from(p[3])
+            / 255.0
+    };
+    let (scaled_width, scaled_height) = (scaled_width as usize, scaled_height as usize);
+    let mut resized = Vec::new();
+    resized.try_reserve_exact(scaled_width * scaled_height)?;
+    for y in 0..scaled_height {
+        let sy = (y as f64 / scale).min((height - 1) as f64);
+        let y0 = sy as usize;
+        let y1 = (y0 + 1).min(height - 1);
+        let fy = sy - y0 as f64;
+        for x in 0..scaled_width {
+            let sx = (x as f64 / scale).min((width - 1) as f64);
+            let x0 = sx as usize;
+            let x1 = (x0 + 1).min(width - 1);
+            let fx = sx - x0 as f64;
+            let top = gray(x0, y0) * (1.0 - fx) + gray(x1, y0) * fx;
+            let bottom = gray(x0, y1) * (1.0 - fx) + gray(x1, y1) * fx;
+            resized.push((top * (1.0 - fy) + bottom * fy).round().clamp(0.0, 255.0) as u8);
+        }
+    }
+    Ok(sweeplsd::detect(&resized, scaled_width, scaled_height)?
+        .into_iter()
+        .flatten()
+        .map(|coordinate| f64::from(coordinate) / scale)
+        .collect())
+}
