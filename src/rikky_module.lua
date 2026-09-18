@@ -850,6 +850,41 @@ local function finite_number(value)
   return value
 end
 
+function rikky_module.textload(text, alignment, center, orientation, font, size)
+  assert(type(text) == "string", "Expected text")
+  if alignment == nil then
+    alignment = 0
+  end
+  if center == nil then
+    center = 4
+  end
+  if orientation == nil then
+    orientation = 0
+  end
+  assert(alignment == 0 or alignment == 1 or alignment == 2, "Invalid text alignment")
+  assert(finite_number(center) == math.floor(center) and center >= 0 and center <= 8, "Invalid text center")
+  assert(orientation == 0 or orientation == 1, "Invalid text orientation")
+
+  local font_control, size_control = "", ""
+  if font ~= nil then
+    assert(type(font) == "string", "Expected font name")
+    font_control = "," .. font
+  end
+  if size ~= nil then
+    size_control = string.format("%d", finite_number(size))
+  end
+  if font ~= nil or size ~= nil then
+    text = "<s" .. size_control .. font_control .. ">" .. text
+  end
+
+  if obj.load("text", text, 0, 0, alignment + orientation * 9) then
+    -- alignによる中心座標を、第3引数の指定で上書きする。
+    obj.cx = (center % 3 - 1) * obj.w / 2
+    obj.cy = (math.floor(center / 3) - 1) * obj.h / 2
+    obj.cz = 0
+  end
+end
+
 local function clamp(value, minimum, maximum)
   return math.max(minimum, math.min(maximum, value))
 end
