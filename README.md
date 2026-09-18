@@ -2,6 +2,10 @@
 
 [rikky_module](https://hazumurhythm.com/wev/amazon/?script=rikkymodulea2Z)っぽいやつ。
 
+> [!WARNING]
+> このプラグインはAviUtl1の互換性のために作られています。
+> AviUtl2用に新しくスクリプトを開発する目的では使わないでください。
+
 ## 実装済関数
 
 - [ ] `getinfo`
