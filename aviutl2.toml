@@ -16,6 +16,7 @@ destination = "Script/rikky_module.lua"
 [artifacts.rikky_modoki-obj2]
 source = "build/@rikky_modoki.aux2.obj2"
 destination = "Script/@rikky_modoki.aux2.obj2"
+build = "aulua build"
 
 [artifacts.rikky_modoki-aux2]
 destination = "Plugin/rikky_modoki.aux2"
