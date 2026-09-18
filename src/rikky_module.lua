@@ -1,19 +1,21 @@
 local module = obj.module("rikky_modoki")
 rikky_module = {}
 
-local function to_sjis(str)
-  local sjis_bytes = module.to_sjis(str)
-  local sjis_str = ""
-  local stack_size = 100
-  for i = 1, #sjis_bytes, stack_size do
-    local chunk = {}
-    for j = i, math.min(i + stack_size - 1, #sjis_bytes) do
-      table.insert(chunk, string.char(sjis_bytes[j]))
-    end
-    sjis_str = sjis_str .. table.concat(chunk)
-  end
-  return sjis_str
-end
+-- NOTE: AviUtl2のmod2で文字列を返すと勝手にSJISに変換されてくれるっぽい？
+--
+-- local function to_sjis(str)
+--   local sjis_bytes = module.to_sjis(str)
+--   local sjis_str = ""
+--   local stack_size = 100
+--   for i = 1, #sjis_bytes, stack_size do
+--     local chunk = {}
+--     for j = i, math.min(i + stack_size - 1, #sjis_bytes) do
+--       table.insert(chunk, string.char(sjis_bytes[j]))
+--     end
+--     sjis_str = sjis_str .. table.concat(chunk)
+--   end
+--   return sjis_str
+-- end
 
 -- スクリプト名を取得する。
 -- script_nameはアニメーション効果でしか使えないので、
@@ -49,9 +51,9 @@ function rikky_module.getinfo(target, option)
   elseif target == "aup" then
     if option == 1 then
       -- basename_only
-      return to_sjis(module.project_path(true))
+      return module.project_path(true)
     else
-      return to_sjis(module.project_path(false))
+      return module.project_path(false)
     end
   elseif target == "output" then
     -- 出力中のファイル名を返すが、AviUtl2にはそういうAPIがないので断念
@@ -60,9 +62,9 @@ function rikky_module.getinfo(target, option)
     return module.edit_state()
   elseif target == "path" then
     if option == 2 then
-      return to_sjis(module.desktop_dir())
+      return module.desktop_dir()
     else
-      return to_sjis(module.project_dir())
+      return module.project_dir()
     end
   elseif target == "focus" then
     -- NOTE: 本来はcall_read_sectionで自身が選択されているかを見たほうがいいはず
@@ -212,9 +214,9 @@ function rikky_module.getinfo(target, option)
     if option == nil then
       -- obj.load("text")のテキストも返すらしいが、一旦パス...
       -- フックしてあげればできそうではあるが面倒
-      return to_sjis(obj.getvalue("テキスト", "テキスト"))
+      return obj.getvalue("テキスト", "テキスト")
     else
-      return to_sjis(obj.getvalue(option, "テキスト", "テキスト"))
+      return obj.getvalue(option, "テキスト", "テキスト")
     end
   elseif target == "buffer" then
     local buffer = obj.getoption("drawtarget")
@@ -230,17 +232,17 @@ function rikky_module.getinfo(target, option)
   elseif target == "object" then
     local script_name = module.script_name_of(obj.layer, obj.frame_s)
     if script_name == "動画ファイル" then
-      return to_sjis(script_name), {
-        file = to_sjis(obj.getvalue(obj.layer, script_name, "ファイル")),
+      return script_name, {
+        file = obj.getvalue(obj.layer, script_name, "ファイル"),
         loop = tonumber(obj.getvalue(obj.layer, script_name, "ループ再生")),
         alphachannel = 1
       }
     elseif script_name == "画像ファイル" then
-      return to_sjis(script_name), {
-        file = to_sjis(obj.getvalue(obj.layer, script_name, "ファイル")),
+      return script_name, {
+        file = obj.getvalue(obj.layer, script_name, "ファイル"),
       }
     elseif script_name == "テキスト" then
-      return to_sjis(script_name), {
+      return script_name, {
         color = tonumber(obj.getvalue(obj.layer, script_name, "文字色"), 16),
         color2 = tonumber(obj.getvalue(obj.layer, script_name, "影・縁色"), 16),
         type = ({
@@ -278,7 +280,7 @@ function rikky_module.getinfo(target, option)
         spacing_x = tonumber(obj.getvalue(obj.layer, script_name, "字間")),
         spacing_y = tonumber(obj.getvalue(obj.layer, script_name, "行間")),
         presision = 1,
-        font = to_sjis(obj.getvalue(obj.layer, script_name, "フォント")),
+        font = obj.getvalue(obj.layer, script_name, "フォント"),
         individual = tonumber(obj.getvalue(obj.layer, script_name, "文字毎に個別オブジェクト")),
         display = tonumber(obj.getvalue(obj.layer, script_name, "移動座標上に表示")),
         autoscroll = tonumber(obj.getvalue(obj.layer, script_name, "自動スクロール")),
@@ -286,12 +288,12 @@ function rikky_module.getinfo(target, option)
         italic = tonumber(obj.getvalue(obj.layer, script_name, "I")),
       }
     elseif script_name == "図形" then
-      return to_sjis(script_name), {
+      return script_name, {
         color = tonumber(obj.getvalue(obj.layer, script_name, "色"), 16),
-        figure = to_sjis(obj.getvalue(obj.layer, script_name, "図形の種類")),
+        figure = obj.getvalue(obj.layer, script_name, "図形の種類"),
       }
     elseif script_name == "フレームバッファ" then
-      return to_sjis(script_name), {
+      return script_name, {
         bufferclear = tonumber(obj.getvalue(obj.layer, script_name, "フレームバッファをクリア")),
       }
     elseif script_name == "音声波形表示" then
@@ -312,11 +314,11 @@ function rikky_module.getinfo(target, option)
       else
         wave_type = 1
       end
-      return to_sjis("音声波形"), {
+      return "音声波形", {
         color = tonumber(obj.getvalue(obj.layer, script_name, "波形の色"), 16),
         projectsound = file and 0 or 1,
         type = wave_type,
-        file = file and to_sjis(file),
+        file = file,
         mode = mode,
         res_w = tonumber(obj.getvalue(obj.layer, script_name, "横解像度")),
         res_h = tonumber(obj.getvalue(obj.layer, script_name, "縦解像度")),
@@ -325,18 +327,18 @@ function rikky_module.getinfo(target, option)
         mirror = mirror,
       }
     elseif script_name == "シーン" then
-      return to_sjis(script_name), {
+      return script_name, {
         scenenumber = tonumber(obj.getvalue(obj.layer, script_name, "シーン")),
         loop = tonumber(obj.getvalue(obj.layer, script_name, "ループ再生")),
       }
     elseif script_name == "カメラ制御" then
-      return to_sjis(script_name), {
+      return script_name, {
         zbuffer = 1
       }
     elseif script_name == "直前オブジェクト" or script_name == "フィルタオブジェクト" or script_name == "グループ制御" then
-      return to_sjis(script_name), {}
+      return script_name, {}
     else
-      return to_sjis("カスタムオブジェクト")
+      return "カスタムオブジェクト", {}
     end
   elseif target == "start_end" then
     return obj.frame_s, obj.frame_e
@@ -363,11 +365,11 @@ function rikky_module.getinfo(target, option)
 
     local result = {}
     for i = #prevs, 1, -1 do
-      table.insert(result, to_sjis(prevs[i]))
+      table.insert(result, prevs[i])
     end
-    table.insert(result, to_sjis(obj.getoption("script_name")))
+    table.insert(result, obj.getoption("script_name"))
     for i = 1, #afters do
-      table.insert(result, to_sjis(afters[i]))
+      table.insert(result, afters[i])
     end
 
     return result, #prevs + 1, #result
@@ -399,7 +401,7 @@ function rikky_module.getinfo(target, option)
   elseif target == "font" then
     local name, size, style_type, col1, col2, bold, italic = obj.getfont()
     return {
-      name = to_sjis(name),
+      name = name,
       size = size,
       bold = bold,
       italic = italic,
@@ -433,7 +435,7 @@ function rikky_module.fold(...)
     module.rewrite_parameter(
       get_script_name(),
       "anm",
-      "font",
+      "folder",
       index
     )
   end
@@ -514,7 +516,7 @@ function rikky_module.foldCS(...)
     module.rewrite_parameter(
       get_script_name(),
       "obj",
-      "font",
+      "folder",
       index
     )
   end
@@ -597,10 +599,10 @@ local function parameter(value, index, definition, extension)
     assert(type(source) == "string" and not source:find("[\r\n]"), "Invalid parameter default")
     assert(
       type(minimum) == "number"
-        and type(maximum) == "number"
-        and minimum > -math.huge
-        and maximum < math.huge
-        and minimum <= maximum,
+      and type(maximum) == "number"
+      and minimum > -math.huge
+      and maximum < math.huge
+      and minimum <= maximum,
       "Invalid parameter range"
     )
     local evaluate = assert(loadstring("return (" .. source .. "\n)", "parameter default"))
@@ -635,6 +637,15 @@ end
 
 function rikky_module.parameterCS(value, index, definition)
   return parameter(value, index, definition, "obj")
+end
+
+function rikky_module.dir(directory, ...)
+  local extensions = { ... }
+  for i = 1, select("#", ...) do
+    assert(type(extensions[i]) == "string", "Expected an extension or directory mode")
+  end
+  local paths = module.dir(directory, extensions)
+  return paths
 end
 
 function rikky_module.find(value, needle)
@@ -730,7 +741,7 @@ function rikky_module.image(mode, id, a, b, c, d)
       if key:sub(1, 2) == "n:" then
         ids[i] = tonumber(key:sub(3))
       else
-        ids[i] = to_sjis(key:sub(3))
+        ids[i] = key:sub(3)
       end
     end
     if single then
@@ -853,8 +864,8 @@ local function multiply_matrix(a, b)
   for row = 0, 2 do
     for column = 1, 3 do
       result[row * 3 + column] = a[row * 3 + 1] * b[column]
-        + a[row * 3 + 2] * b[column + 3]
-        + a[row * 3 + 3] * b[column + 6]
+          + a[row * 3 + 2] * b[column + 3]
+          + a[row * 3 + 3] * b[column + 6]
     end
   end
   return result
@@ -908,8 +919,8 @@ function rikky_module.rotation(x, y, z, angle, axis, center)
   local m, origin = previous_rotation, previous_center
   x, y, z = x - origin[1], y - origin[2], z - origin[3]
   return m[1] * x + m[2] * y + m[3] * z + origin[1],
-    m[4] * x + m[5] * y + m[6] * z + origin[2],
-    m[7] * x + m[8] * y + m[9] * z + origin[3]
+      m[4] * x + m[5] * y + m[6] * z + origin[2],
+      m[7] * x + m[8] * y + m[9] * z + origin[3]
 end
 
 function rikky_module.axisconvertEx(axes, radians, moving)
@@ -981,8 +992,8 @@ local function rgb_to_xyz(r, g, b)
   -- 旧版はRGB成分を線形値として扱い、ガンマ補正を行わない。
   r, g, b = r / 255 * 100, g / 255 * 100, b / 255 * 100
   return 0.412391 * r + 0.357584 * g + 0.180481 * b,
-    0.212639 * r + 0.715169 * g + 0.072192 * b,
-    0.019331 * r + 0.119195 * g + 0.950532 * b
+      0.212639 * r + 0.715169 * g + 0.072192 * b,
+      0.019331 * r + 0.119195 * g + 0.950532 * b
 end
 
 local function xyz_color(x, y, z)
@@ -1034,8 +1045,8 @@ function rikky_module.colorconvert(mode, a, b, c, d)
       r, g, blue = r / 255, g / 255, blue / 255
       local y = 0.299 * r + 0.587 * g + 0.114 * blue
       return math.floor(y * 4096 + 0.5),
-        math.floor((blue - y) / 1.772 * 4096 + 0.5),
-        math.floor((r - y) / 1.402 * 4096 + 0.5)
+          math.floor((blue - y) / 1.772 * 4096 + 0.5),
+          math.floor((r - y) / 1.402 * 4096 + 0.5)
     elseif mode == "xyz" then
       return rgb_to_xyz(r, g, blue)
     elseif mode == "lab" then

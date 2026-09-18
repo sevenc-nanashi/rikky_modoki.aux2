@@ -63,6 +63,49 @@ impl RikkyModokiMod2 {
         Ok(format!("{}\\", desktop_dir.to_string_lossy()))
     }
 
+    fn dir(
+        &self,
+        directory: String,
+        extensions: Vec<String>,
+    ) -> aviutl2::common::AnyResult<Vec<String>> {
+        anyhow::ensure!(
+            !extensions.is_empty(),
+            "Expected at least one extension or directory mode"
+        );
+        let folders = extensions[0].is_empty();
+        let all_files = extensions[0] == "*all";
+        let mut paths = Vec::new();
+        for entry in std::fs::read_dir(std::path::absolute(directory)?)? {
+            let path = entry?.path();
+            let metadata = path.metadata()?;
+            let matches = if folders {
+                metadata.is_dir()
+            } else {
+                metadata.is_file()
+                    && (all_files
+                        || path
+                            .extension()
+                            .and_then(|extension| extension.to_str())
+                            .is_some_and(|extension| {
+                                extensions.iter().any(|filter| {
+                                    extension.eq_ignore_ascii_case(
+                                        filter.trim_start_matches("*.").trim_start_matches('.'),
+                                    )
+                                })
+                            }))
+            };
+            if matches {
+                paths.push(
+                    path.into_os_string().into_string().map_err(|_| {
+                        anyhow::anyhow!("Directory entry path is not valid Unicode")
+                    })?,
+                );
+            }
+        }
+        paths.sort_unstable();
+        Ok(paths)
+    }
+
     fn scene_id(&self) -> i32 {
         crate::EDIT_HANDLE.get_edit_info().scene_id
     }
