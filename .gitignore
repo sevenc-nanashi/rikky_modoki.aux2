@@ -6,3 +6,4 @@
 # Added by cargo
 
 /target
+/build

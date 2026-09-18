@@ -46,3 +46,27 @@ url_api = "https://api.github.com/repos/EmbarkStudios/cargo-about/releases/asset
 checksum = "sha256:1c03e5890238562497c2d89a3b75b02560af349c1fc3e713d3284f532a5cd748"
 url = "https://github.com/EmbarkStudios/cargo-about/releases/download/0.9.2/cargo-about-0.9.2-x86_64-pc-windows-msvc.tar.gz"
 url_api = "https://api.github.com/repos/EmbarkStudios/cargo-about/releases/assets/519591745"
+
+[[tools."github:karoterra/aviutl2-aulua"]]
+version = "0.14.0"
+backend = "github:karoterra/aviutl2-aulua"
+specifiers = ["latest"]
+
+[tools."github:karoterra/aviutl2-aulua"."platforms.linux-x64"]
+checksum = "sha256:ed87b11e3a06b7d843d40d0b1605626d2a982f411b66b18da51dc4c175336696"
+url = "https://github.com/karoterra/aviutl2-aulua/releases/download/v0.14.0/aulua-v0.14.0-linux-x64.tar.gz"
+url_api = "https://api.github.com/repos/karoterra/aviutl2-aulua/releases/assets/525050796"
+provenance = "github-attestations"
+
+[tools."github:karoterra/aviutl2-aulua"."platforms.linux-x64-musl"]
+checksum = "sha256:ed87b11e3a06b7d843d40d0b1605626d2a982f411b66b18da51dc4c175336696"
+url = "https://github.com/karoterra/aviutl2-aulua/releases/download/v0.14.0/aulua-v0.14.0-linux-x64.tar.gz"
+url_api = "https://api.github.com/repos/karoterra/aviutl2-aulua/releases/assets/525050796"
+provenance = "github-attestations"
+
+[tools."github:karoterra/aviutl2-aulua"."platforms.windows-x64"]
+checksum = "sha256:814caa59b276a2d5f28c421c7259cb0d5e0373bf853d524600383bd2e2661fe9"
+url = "https://github.com/karoterra/aviutl2-aulua/releases/download/v0.14.0/aulua-v0.14.0-windows-x64.zip"
+url_api = "https://api.github.com/repos/karoterra/aviutl2-aulua/releases/assets/525050795"
+provenance = "github-attestations"
+provenance_verified = true

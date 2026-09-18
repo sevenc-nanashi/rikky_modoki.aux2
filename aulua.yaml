@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/karoterra/aviutl2-aulua/refs/heads/main/schema/aulua.schema.json
+
+scripts:
+  - name: "@rikky_modoki.aux2.obj2"
+    sources:
+      - label: 初期化
+        path: "src/rikky_modoki.lua"

@@ -25,6 +25,10 @@ impl aviutl2::module::ScriptModule for RikkyModokiMod2 {
 
 #[aviutl2::module::functions]
 impl RikkyModokiMod2 {
+    fn is_development(&self) -> bool {
+        cfg!(debug_assertions)
+    }
+
     fn project_path(&self, basename_only: bool) -> aviutl2::common::AnyResult<String> {
         let project_path = PROJECT_PATH.lock().unwrap();
         if let Some(path) = &*project_path {

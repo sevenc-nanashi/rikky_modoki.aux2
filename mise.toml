@@ -2,3 +2,4 @@
 "cargo:aviutl2-cli" = "latest"
 "cargo:cargo-edit" = "latest"
 "github:EmbarkStudios/cargo-about" = "latest"
+"github:karoterra/aviutl2-aulua" = "latest"

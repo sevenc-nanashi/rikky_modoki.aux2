@@ -14,8 +14,8 @@ source = "src/rikky_module.lua"
 destination = "Script/rikky_module.lua"
 
 [artifacts.rikky_modoki-obj2]
-source = "src/rikky_modoki.lua"
-destination = "Script/rikky_modoki.obj2"
+source = "build/@rikky_modoki.aux2.obj2"
+destination = "Script/@rikky_modoki.aux2.obj2"
 
 [artifacts.rikky_modoki-aux2]
 destination = "Plugin/rikky_modoki.aux2"
@@ -37,7 +37,14 @@ enabled = false
 
 [artifacts.unsafe_script]
 source = "src/unsafe_script.lua"
-destination = "Script/unsafe_script.anm2"
+destination = "Script/unsafe_script.anm"
 
 [artifacts.unsafe_script.profiles.release]
+enabled = false
+
+[artifacts.unsafe_script2]
+source = "src/unsafe_script.lua"
+destination = "Script/unsafe_script2.anm2"
+
+[artifacts.unsafe_script2.profiles.release]
 enabled = false

@@ -1,6 +1,5 @@
 -- https://canary.discord.com/channels/1392018499072823327/1417446601642741803/1417446601642741803
 
---script:lua
 --information:Unsafeスクリプト制御 r3
 --label:Unsafe
 --filter
