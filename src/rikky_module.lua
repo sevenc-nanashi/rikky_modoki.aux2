@@ -759,6 +759,37 @@ local function image_integer(value, minimum, maximum)
   return value
 end
 
+local function save_image_file(file, format, quality)
+  assert(type(file) == "string" and not file:find("\0", 1, true), "Invalid image filename")
+  if file == "" then
+    return
+  end
+  if quality == nil then
+    quality = 100
+  else
+    quality = tonumber(quality)
+    assert(quality ~= nil and quality > -math.huge and quality < math.huge, "Invalid JPEG quality")
+    quality = math.max(1, math.min(100, math.floor(quality)))
+  end
+  local data, width, height = obj.getpixeldata("object", "rgba")
+  if data == nil or width == 0 or height == 0 then
+    return
+  end
+  module.image_save_file(file, format, data, width, height, quality)
+end
+
+function rikky_module.png(file)
+  save_image_file(file, "png")
+end
+
+function rikky_module.jpg(file, quality)
+  save_image_file(file, "jpg", quality)
+end
+
+function rikky_module.bmp(file)
+  save_image_file(file, "bmp")
+end
+
 local function load_image(data, width, height, lease, reset)
   if reset and not obj.load("figure", "四角形", 0, 1) then
     module.image_release(lease)

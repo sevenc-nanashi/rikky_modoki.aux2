@@ -4,6 +4,7 @@ use std::{
 };
 
 use aviutl2::module::{AsScriptModuleUserData, ScriptModuleUserData};
+use windows::{Win32::Graphics::GdiPlus as gdip, core::GUID};
 
 #[derive(Clone)]
 struct Image {
@@ -53,6 +54,152 @@ fn byte_len(width: usize, height: usize) -> anyhow::Result<usize> {
         .and_then(|n| n.checked_mul(4))
         .filter(|n| *n <= isize::MAX as usize)
         .ok_or_else(|| anyhow::anyhow!("Image size overflow"))
+}
+
+fn export_path(file: &str, format: &str) -> anyhow::Result<std::path::PathBuf> {
+    anyhow::ensure!(
+        !file.is_empty() && !file.contains('\0'),
+        "Invalid image filename"
+    );
+    let mut path = std::path::PathBuf::from(file);
+    anyhow::ensure!(path.file_name().is_some(), "Expected an image filename");
+    if !path
+        .extension()
+        .and_then(|s| s.to_str())
+        .is_some_and(|ext| {
+            ext.eq_ignore_ascii_case(format)
+                || (format == "jpg" && ext.eq_ignore_ascii_case("jpeg"))
+        })
+    {
+        path = path.with_added_extension(format);
+    }
+    if path.is_relative() {
+        let executable = std::env::current_exe()?;
+        let directory = executable
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("Missing executable directory"))?;
+        path = directory.join(path);
+    }
+    Ok(path)
+}
+
+struct ExportBitmap {
+    token: usize,
+    bitmap: *mut gdip::GpBitmap,
+}
+
+impl Drop for ExportBitmap {
+    fn drop(&mut self) {
+        // SAFETY: この保存処理が所有する画像を破棄してからGDI+を終了する。
+        unsafe {
+            if !self.bitmap.is_null() {
+                gdip::GdipDisposeImage(self.bitmap.cast());
+            }
+            gdip::GdiplusShutdown(self.token);
+        }
+    }
+}
+
+/// data は width * height * 4 バイトの読み取り可能なRGBAデータを指すこと。
+pub unsafe fn save_file(
+    file: &str,
+    format: &str,
+    data: *const u8,
+    width: usize,
+    height: usize,
+    mut quality: u32,
+) -> anyhow::Result<()> {
+    // Windows標準エンコーダーのCLSID。ファイルの拡張子とは独立して形式を指定する。
+    let encoder = GUID::from_u128(match format {
+        "png" => 0x557cf406_1a04_11d3_9a73_0000f81ef32e,
+        "jpg" => 0x557cf401_1a04_11d3_9a73_0000f81ef32e,
+        "bmp" => 0x557cf400_1a04_11d3_9a73_0000f81ef32e,
+        _ => anyhow::bail!("Unknown image format: {format}"),
+    });
+    let len = byte_len(width, height)?;
+    anyhow::ensure!(!data.is_null(), "Image data is null");
+    anyhow::ensure!((1..=100).contains(&quality), "Invalid JPEG quality");
+    let path = export_path(file, format)?;
+    let png = format == "png";
+    let channels = if png { 4 } else { 3 };
+    let stride = (width * channels).next_multiple_of(4);
+    let native_stride = i32::try_from(stride)?;
+    let mut pixels = Vec::new();
+    pixels.try_reserve_exact(stride * height)?;
+    pixels.resize(stride * height, 0);
+    // SAFETY: getpixeldataのポインタが有効な間に、GDI+用のBGR(A)へコピーする。
+    let rgba = unsafe { std::slice::from_raw_parts(data, len) };
+    for (source, destination) in rgba
+        .chunks_exact(width * 4)
+        .zip(pixels.chunks_exact_mut(stride))
+    {
+        for (src, dst) in source
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(destination.chunks_exact_mut(channels))
+        {
+            if png {
+                dst.copy_from_slice(&[src[2], src[1], src[0], src[3]]);
+            } else {
+                // 元のJPG/BMP出力と同じく、透明部分は黒背景に合成する。
+                for (channel, value) in dst.iter_mut().zip([src[2], src[1], src[0]]) {
+                    *channel = (u16::from(value) * u16::from(src[3]) / 255) as u8;
+                }
+            }
+        }
+    }
+    let filename = windows::core::HSTRING::from(path.as_os_str());
+    let input = gdip::GdiplusStartupInput {
+        GdiplusVersion: 1,
+        ..Default::default()
+    };
+    let mut token = 0;
+    // SAFETY: 各構造体・画素・パスのメモリは保存完了まで保持する。
+    unsafe {
+        let status = gdip::GdiplusStartup(&mut token, &input, std::ptr::null_mut());
+        anyhow::ensure!(status == gdip::Ok, "GDI+ startup failed: {status:?}");
+        let mut image = ExportBitmap {
+            token,
+            bitmap: std::ptr::null_mut(),
+        };
+        // PixelFormat32bppARGB / PixelFormat24bppRGB（Windows SDKのマクロ）。
+        let pixel_format = if png { 0x26200a } else { 0x21808 };
+        let status = gdip::GdipCreateBitmapFromScan0(
+            width as i32,
+            height as i32,
+            native_stride,
+            pixel_format,
+            Some(pixels.as_ptr()),
+            &mut image.bitmap,
+        );
+        anyhow::ensure!(
+            status == gdip::Ok,
+            "Cannot create export bitmap: {status:?}"
+        );
+        let parameters = gdip::EncoderParameters {
+            Count: 1,
+            Parameter: [gdip::EncoderParameter {
+                Guid: gdip::EncoderQuality,
+                NumberOfValues: 1,
+                Type: gdip::EncoderParameterValueTypeLong.0 as u32,
+                Value: (&mut quality as *mut u32).cast(),
+            }],
+        };
+        let parameters = if format == "jpg" {
+            &parameters
+        } else {
+            std::ptr::null()
+        };
+        let status =
+            gdip::GdipSaveImageToFile(image.bitmap.cast(), &filename, &encoder, parameters);
+        anyhow::ensure!(
+            status == gdip::Ok,
+            "Cannot save image to {}: {status:?}",
+            path.display()
+        );
+    }
+    Ok(())
 }
 
 /// data は width * height * 4 バイトの読み取り可能なRGBAデータを指すこと。
@@ -371,4 +518,124 @@ pub unsafe fn linedetection(
         .flatten()
         .map(|coordinate| f64::from(coordinate) / scale)
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exports_images_with_compatible_paths_colors_and_quality() -> anyhow::Result<()> {
+        let executable = std::env::current_exe()?;
+        let directory = executable.parent().unwrap();
+        for (file, format, expected) in [
+            ("画像", "png", "画像.png"),
+            ("画像.PNG", "png", "画像.PNG"),
+            ("画像.bmp", "png", "画像.bmp.png"),
+            ("画像.JPEG", "jpg", "画像.JPEG"),
+            ("画像.JPG", "jpg", "画像.JPG"),
+            ("画像.BMP", "bmp", "画像.BMP"),
+        ] {
+            assert_eq!(export_path(file, format)?, directory.join(expected));
+        }
+        let folder = directory.join(format!("__gi_image_export_{}", std::process::id()));
+        std::fs::create_dir(&folder)?;
+        let file = folder.join("画像");
+        let file = file.to_str().unwrap();
+        // 幅3でBGRの行パディングも検証する。上段は不透明・半透明・透明。
+        let pixels = [
+            255, 0, 0, 255, 0, 255, 0, 128, 0, 0, 255, 0, 13, 31, 73, 255, 254, 127, 63, 254, 99,
+            199, 255, 1,
+        ];
+        unsafe {
+            for format in ["png", "bmp", "jpg"] {
+                save_file(file, format, pixels.as_ptr(), 3, 2, 100)?;
+                let path = export_path(file, format)?;
+                let bytes = std::fs::read(&path)?;
+                let signature: &[u8] = match format {
+                    "png" => b"\x89PNG\r\n\x1a\n",
+                    "bmp" => b"BM",
+                    _ => b"\xff\xd8\xff",
+                };
+                assert!(bytes.starts_with(signature));
+                if format == "bmp" {
+                    assert_eq!(u16::from_le_bytes(bytes[28..30].try_into()?), 24);
+                }
+                let mut token = 0;
+                let input = gdip::GdiplusStartupInput {
+                    GdiplusVersion: 1,
+                    ..Default::default()
+                };
+                assert_eq!(
+                    gdip::GdiplusStartup(&mut token, &input, std::ptr::null_mut()),
+                    gdip::Ok
+                );
+                let mut image = ExportBitmap {
+                    token,
+                    bitmap: std::ptr::null_mut(),
+                };
+                let filename = windows::core::HSTRING::from(path.as_os_str());
+                assert_eq!(
+                    gdip::GdipCreateBitmapFromFile(&filename, &mut image.bitmap),
+                    gdip::Ok
+                );
+                let (mut width, mut height) = (0, 0);
+                assert_eq!(
+                    gdip::GdipGetImageWidth(image.bitmap.cast(), &mut width),
+                    gdip::Ok
+                );
+                assert_eq!(
+                    gdip::GdipGetImageHeight(image.bitmap.cast(), &mut height),
+                    gdip::Ok
+                );
+                assert_eq!((width, height), (3, 2));
+                if format != "jpg" {
+                    let expected = if format == "png" {
+                        [
+                            0xffff0000, 0x8000ff00, 0x000000ff, 0xff0d1f49, 0xfefe7f3f, 0x0163c7ff,
+                        ]
+                    } else {
+                        [
+                            0xffff0000, 0xff008000, 0xff000000, 0xff0d1f49, 0xfffd7e3e, 0xff000001,
+                        ]
+                    };
+                    for (i, expected) in expected.into_iter().enumerate() {
+                        let mut color = 0;
+                        assert_eq!(
+                            gdip::GdipBitmapGetPixel(
+                                image.bitmap,
+                                (i % 3) as i32,
+                                (i / 3) as i32,
+                                &mut color
+                            ),
+                            gdip::Ok
+                        );
+                        assert_eq!(color, expected, "{format} pixel {i}");
+                    }
+                }
+            }
+            let best = std::fs::read(export_path(file, "jpg")?)?;
+            save_file(file, "jpg", pixels.as_ptr(), 3, 2, 1)?;
+            assert_ne!(std::fs::read(export_path(file, "jpg")?)?, best);
+            for (file, format, width, height, quality) in [
+                ("", "png", 3, 2, 100),
+                ("invalid\0name", "png", 3, 2, 100),
+                (file, "gif", 3, 2, 100),
+                (file, "png", 0, 2, 100),
+                (file, "png", i32::MAX as usize, 2, 100),
+                (file, "jpg", 3, 2, 101),
+            ] {
+                assert!(save_file(file, format, pixels.as_ptr(), width, height, quality).is_err());
+            }
+            assert!(save_file(file, "png", std::ptr::null(), 3, 2, 100).is_err());
+            let missing = folder.join("missing").join("画像.png");
+            assert!(
+                save_file(missing.to_str().unwrap(), "png", pixels.as_ptr(), 3, 2, 100).is_err()
+            );
+            // 失敗後も保存でき、既存ファイルも上書きできる。
+            save_file(file, "png", pixels.as_ptr(), 3, 2, 100)?;
+        }
+        std::fs::remove_dir_all(folder)?;
+        Ok(())
+    }
 }

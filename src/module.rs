@@ -239,6 +239,19 @@ impl RikkyModokiMod2 {
         unsafe { crate::image::write(id, data, width, height, alpha, only_empty) }
     }
 
+    fn image_save_file(
+        &self,
+        file: String,
+        format: String,
+        data: *const u8,
+        width: usize,
+        height: usize,
+        quality: u32,
+    ) -> aviutl2::common::AnyResult<()> {
+        // SAFETY: Lua側でgetpixeldataの直後に呼び出し、その間画像を変更しない。
+        unsafe { crate::image::save_file(&file, &format, data, width, height, quality) }
+    }
+
     fn image_copy(&self, destination: String, source: String, only_empty: bool) -> bool {
         crate::image::copy(destination, &source, only_empty)
     }
