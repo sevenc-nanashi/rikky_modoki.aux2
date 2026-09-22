@@ -884,7 +884,17 @@ fn expand_dialog(script_content: &mut String) -> anyhow::Result<Vec<String>> {
         let value = remaining[..end].trim();
         anyhow::ensure!(!value.is_empty(), "Missing default value for {name}");
         names.push(name.to_owned());
-        values.push(format!("--value@{name}:{},{value}", label.trim()));
+        let label = label.trim();
+        let (kind, label) = if let Some(label) = label.strip_suffix("/chk") {
+            ("check", label)
+        } else if let Some(label) = label.strip_suffix("/col") {
+            ("color", label)
+        } else if let Some(label) = label.strip_suffix("/fig") {
+            ("figure", label)
+        } else {
+            ("value", label)
+        };
+        values.push(format!("--{kind}@{name}:{label},{value}"));
         if end == remaining.len() {
             break;
         }

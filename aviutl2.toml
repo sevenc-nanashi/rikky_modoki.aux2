@@ -13,6 +13,82 @@ catalog_dependencies = ["KuroNeko.CopyAlias"]
 source = "src/rikky_module.lua"
 destination = "Script/rikky_module.lua"
 
+[artifacts.rikky_modoki-init-lua]
+source = "src/rikky_modoki/init.lua"
+destination = "Script/rikky_modoki/init.lua"
+
+[artifacts.rikky_modoki-dialog-lua]
+source = "src/rikky_modoki/dialog.lua"
+destination = "Script/rikky_modoki/dialog.lua"
+
+[artifacts.rikky_modoki-info-lua]
+source = "src/rikky_modoki/info.lua"
+destination = "Script/rikky_modoki/info.lua"
+
+[artifacts.rikky_modoki-utility-lua]
+source = "src/rikky_modoki/utility.lua"
+destination = "Script/rikky_modoki/utility.lua"
+
+[artifacts.rikky_modoki-image-lua]
+source = "src/rikky_modoki/image.lua"
+destination = "Script/rikky_modoki/image.lua"
+
+[artifacts.rikky_modoki-common-lua]
+source = "src/rikky_modoki/common.lua"
+destination = "Script/rikky_modoki/common.lua"
+
+[artifacts.rikky_modoki-audio-lua]
+source = "src/rikky_modoki/audio.lua"
+destination = "Script/rikky_modoki/audio.lua"
+
+[artifacts.rikky_modoki-ui-lua]
+source = "src/rikky_modoki/ui.lua"
+destination = "Script/rikky_modoki/ui.lua"
+
+[artifacts.rikky_modoki-text-lua]
+source = "src/rikky_modoki/text.lua"
+destination = "Script/rikky_modoki/text.lua"
+
+[artifacts.rikky_modoki-math3d-lua]
+source = "src/rikky_modoki/math3d.lua"
+destination = "Script/rikky_modoki/math3d.lua"
+
+[artifacts.rikky_modoki-camera-lua]
+source = "src/rikky_modoki/camera.lua"
+destination = "Script/rikky_modoki/camera.lua"
+
+[artifacts.rikky_modoki-transform-lua]
+source = "src/rikky_modoki/transform.lua"
+destination = "Script/rikky_modoki/transform.lua"
+
+[artifacts.rikky_modoki-color-lua]
+source = "src/rikky_modoki/color.lua"
+destination = "Script/rikky_modoki/color.lua"
+
+[artifacts.rikky_modoki-effect-lua]
+source = "src/rikky_modoki/effect.lua"
+destination = "Script/rikky_modoki/effect.lua"
+
+[artifacts.rikky_modoki-glass-lua]
+source = "src/rikky_modoki/glass.lua"
+destination = "Script/rikky_modoki/glass.lua"
+
+[artifacts.rikky_modoki-draw-common-lua]
+source = "src/rikky_modoki/draw_common.lua"
+destination = "Script/rikky_modoki/draw_common.lua"
+
+[artifacts.rikky_modoki-material-common-lua]
+source = "src/rikky_modoki/material_common.lua"
+destination = "Script/rikky_modoki/material_common.lua"
+
+[artifacts.rikky_modoki-material-lua]
+source = "src/rikky_modoki/material.lua"
+destination = "Script/rikky_modoki/material.lua"
+
+[artifacts.rikky_modoki-material-ex-lua]
+source = "src/rikky_modoki/material_ex.lua"
+destination = "Script/rikky_modoki/material_ex.lua"
+
 [artifacts.rikky_modoki-obj2]
 source = "build/@rikky_modoki.aux2.obj2"
 destination = "Script/@rikky_modoki.aux2.obj2"
