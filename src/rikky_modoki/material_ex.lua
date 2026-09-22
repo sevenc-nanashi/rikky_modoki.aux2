@@ -76,7 +76,11 @@ return function(rikky_module, module, draw, material)
   local function material_ex_light(state, input)
     assert(type(input) == "table", "materialdrawEx: each light must be a table")
     local position, option = input.position, input.option
+    -- 元実装ではposition未指定のライトは無効になる。
+    if position == nil then return end
     if type(option) ~= "table" then option = {} end
+    -- 元実装ではtexture未指定の面光源は無効になる。
+    if option.type == "directlight" and option.texture == nil then return end
     local light = {
       kind = 0,
       double = false,

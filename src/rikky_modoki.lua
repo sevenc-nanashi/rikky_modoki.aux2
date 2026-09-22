@@ -17,4 +17,9 @@
 ---$include "shader/material_reduce.hlsl"
 ]]
 
+local module = obj.module("rikky_modoki")
+if module.is_development() then
+  package.loaded["rikky_module"] = nil
+end
+
 require("rikky_module")

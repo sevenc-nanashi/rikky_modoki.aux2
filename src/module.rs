@@ -477,7 +477,7 @@ impl RikkyModokiMod2 {
                 .join(",")
         );
         let mapping_line = if label.starts_with("*") {
-            format!("local {} = tostring(tmp_{})", name, name)
+            format!("local {} = tmp_{}", name, name)
         } else {
             format!(
                 "local {} = ({{ {} }})[tmp_{}] or {}",

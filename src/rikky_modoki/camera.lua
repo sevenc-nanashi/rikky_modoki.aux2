@@ -10,9 +10,10 @@ return function(rikky_module, module)
     local args
     if arg_or_table == nil then
       args = {}
-    end
-    if type(arg_or_table) ~= "table" then
+    elseif type(arg_or_table) ~= "table" then
       args = { arg_or_table, ... }
+    else
+      args = arg_or_table
     end
     local count = #args
     assert(count <= 8 or count == 12 or count == 20 or count == 21, "Invalid draw argument count")
