@@ -4,7 +4,7 @@ use lazy_regex::regex;
 pub static PROJECT_PATH: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
 pub static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-static PARAMETER_REPLACED: std::sync::atomic::AtomicBool =
+static PARAMETER_REPLACE_NOTIFIED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 #[aviutl2::plugin(ScriptModule)]
@@ -378,42 +378,44 @@ impl RikkyModokiMod2 {
         parameter_type: String,
         index: usize,
     ) -> aviutl2::common::AnyResult<()> {
-        let script_file_path = find_script_file(&script_name, &extension)?;
-        let mut content = encoding_rs::SHIFT_JIS
-            .decode(&std::fs::read(&script_file_path)?)
-            .0
-            .into_owned();
-        let range = script_section(&content, &script_name)?;
-        let mut script_content = content[range.clone()].to_owned();
-        let dialog_info = expand_dialog(&mut script_content)?;
+        replace_parameter_with_done_check(&script_name, &extension, index, || {
+            let script_file_path = find_script_file(&script_name, &extension)?;
+            let mut content = encoding_rs::SHIFT_JIS
+                .decode(&std::fs::read(&script_file_path)?)
+                .0
+                .into_owned();
+            let range = script_section(&content, &script_name)?;
+            let mut script_content = content[range.clone()].to_owned();
+            let dialog_info = expand_dialog(&mut script_content)?;
 
-        let name = dialog_info.get(index.wrapping_sub(1)).ok_or_else(|| {
-            anyhow::anyhow!(
-                "Index {} is out of bounds for dialog parameters (max index: {})",
-                index,
-                dialog_info.len() - 1
-            )
-        })?;
-        let pattern = format!("--value@{}:", name);
-        let replacement = format!("--{}@{}:", parameter_type, name);
-        if !script_content.contains(&pattern) {
-            if script_content.contains(&format!("--{}@{}:", parameter_type, name)) {
-                tracing::debug!(
-                    "Parameter '{}' has already been replaced in the script content",
+            let name = dialog_info.get(index.wrapping_sub(1)).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Index {} is out of bounds for dialog parameters (max index: {})",
+                    index,
+                    dialog_info.len() - 1
+                )
+            })?;
+            let pattern = format!("--value@{}:", name);
+            let replacement = format!("--{}@{}:", parameter_type, name);
+            if !script_content.contains(&pattern) {
+                if script_content.contains(&format!("--{}@{}:", parameter_type, name)) {
+                    tracing::debug!(
+                        "Parameter '{}' has already been replaced in the script content",
+                        name
+                    );
+                    return Ok(());
+                }
+                return Err(anyhow::anyhow!(
+                    "Parameter '{}' not found in the script content",
                     name
-                );
-                return Ok(());
+                ));
             }
-            return Err(anyhow::anyhow!(
-                "Parameter '{}' not found in the script content",
-                name
-            ));
-        }
-        script_content = script_content.replace(&pattern, &replacement);
+            script_content = script_content.replace(&pattern, &replacement);
 
-        content.replace_range(range, &script_content);
-        update_script_file(&script_file_path, &content)?;
-        Ok(())
+            content.replace_range(range, &script_content);
+            update_script_file(&script_file_path, &content)?;
+            Ok(())
+        })
     }
 
     fn rewrite_select_parameter(
@@ -423,85 +425,87 @@ impl RikkyModokiMod2 {
         index: usize,
         choices: Vec<String>,
     ) -> aviutl2::common::AnyResult<()> {
-        let script_file_path = find_script_file(&script_name, &extension)?;
-        let mut content = encoding_rs::SHIFT_JIS
-            .decode(&std::fs::read(&script_file_path)?)
-            .0
-            .into_owned();
-        let range = script_section(&content, &script_name)?;
-        let mut script_content = content[range.clone()].to_owned();
-        let dialog_info = expand_dialog(&mut script_content)?;
+        replace_parameter_with_done_check(&script_name, &extension, index, || {
+            let script_file_path = find_script_file(&script_name, &extension)?;
+            let mut content = encoding_rs::SHIFT_JIS
+                .decode(&std::fs::read(&script_file_path)?)
+                .0
+                .into_owned();
+            let range = script_section(&content, &script_name)?;
+            let mut script_content = content[range.clone()].to_owned();
+            let dialog_info = expand_dialog(&mut script_content)?;
 
-        let name = dialog_info.get(index.wrapping_sub(1)).ok_or_else(|| {
-            anyhow::anyhow!(
-                "Index {} is out of bounds for dialog parameters (max index: {})",
-                index,
-                dialog_info.len() - 1
-            )
-        })?;
+            let name = dialog_info.get(index.wrapping_sub(1)).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Index {} is out of bounds for dialog parameters (max index: {})",
+                    index,
+                    dialog_info.len() - 1
+                )
+            })?;
 
-        let pattern = regex::Regex::new(&format!(
-            r"--value@{}:([^,]+),([^,\r\n]+)",
-            regex::escape(name)
-        ))?;
-        let Some((_, label, default)) = pattern.captures(&script_content).map(|caps| {
-            (
-                caps.get(0).unwrap().as_str().to_string(),
-                caps.get(1).unwrap().as_str().to_string(),
-                caps.get(2).unwrap().as_str().to_string(),
-            )
-        }) else {
-            if script_content.contains(&format!("--select@tmp_{}:", name)) {
-                tracing::debug!(
-                    "Select parameter '{}' has already been replaced in the script content",
+            let pattern = regex::Regex::new(&format!(
+                r"--value@{}:([^,]+),([^,\r\n]+)",
+                regex::escape(name)
+            ))?;
+            let Some((_, label, default)) = pattern.captures(&script_content).map(|caps| {
+                (
+                    caps.get(0).unwrap().as_str().to_string(),
+                    caps.get(1).unwrap().as_str().to_string(),
+                    caps.get(2).unwrap().as_str().to_string(),
+                )
+            }) else {
+                if script_content.contains(&format!("--select@tmp_{}:", name)) {
+                    tracing::debug!(
+                        "Select parameter '{}' has already been replaced in the script content",
+                        name
+                    );
+                    return Ok(());
+                }
+                return Err(anyhow::anyhow!(
+                    "Select parameter '{}' not found in the script content",
                     name
-                );
-                return Ok(());
-            }
-            return Err(anyhow::anyhow!(
-                "Select parameter '{}' not found in the script content",
-                name
-            ));
-        };
+                ));
+            };
 
-        let select_line = format!(
-            "--select@tmp_{}:{}={},{}",
-            name,
-            label,
-            unescape_string(&default),
-            choices
-                .iter()
-                .enumerate()
-                .map(|(i, choice)| format!("{}={}", choice, i + 1))
-                .collect::<Vec<_>>()
-                .join(",")
-        );
-        let mapping_line = if label.starts_with("*") {
-            format!("local {} = tmp_{}", name, name)
-        } else {
-            format!(
-                "local {} = ({{ {} }})[tmp_{}] or {}",
+            let select_line = format!(
+                "--select@tmp_{}:{}={},{}",
                 name,
+                label,
+                unescape_string(&default),
                 choices
                     .iter()
-                    .map(|choice| format!("{:?}", choice))
+                    .enumerate()
+                    .map(|(i, choice)| format!("{}={}", choice, i + 1))
                     .collect::<Vec<_>>()
-                    .join(","),
-                name,
-                default
-            )
-        };
+                    .join(",")
+            );
+            let mapping_line = if label.starts_with("*") {
+                format!("local {} = tmp_{}", name, name)
+            } else {
+                format!(
+                    "local {} = ({{ {} }})[tmp_{}] or {}",
+                    name,
+                    choices
+                        .iter()
+                        .map(|choice| format!("{:?}", choice))
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    name,
+                    default
+                )
+            };
 
-        script_content = pattern
-            .replace(
-                &script_content,
-                &format!("{}\n{}", select_line, mapping_line),
-            )
-            .to_string();
+            script_content = pattern
+                .replace(
+                    &script_content,
+                    &format!("{}\n{}", select_line, mapping_line),
+                )
+                .to_string();
 
-        content.replace_range(range, &script_content);
-        update_script_file(&script_file_path, &content)?;
-        Ok(())
+            content.replace_range(range, &script_content);
+            update_script_file(&script_file_path, &content)?;
+            Ok(())
+        })
     }
 
     fn rewrite_group_parameter(
@@ -511,15 +515,17 @@ impl RikkyModokiMod2 {
         index: usize,
         entries: Vec<String>,
     ) -> aviutl2::common::AnyResult<()> {
-        let path = find_script_file(&script_name, &extension)?;
-        let bytes = std::fs::read(&path)?;
-        let (content, _, errors) = encoding_rs::SHIFT_JIS.decode(&bytes);
-        anyhow::ensure!(!errors, "Script contains invalid Shift-JIS");
-        let mut content = content.into_owned();
-        if expand_parameter_group(&mut content, &script_name, index, &entries)? {
-            update_script_file(&path, &content)?;
-        }
-        Ok(())
+        replace_parameter_with_done_check(&script_name, &extension, index, || {
+            let path = find_script_file(&script_name, &extension)?;
+            let bytes = std::fs::read(&path)?;
+            let (content, _, errors) = encoding_rs::SHIFT_JIS.decode(&bytes);
+            anyhow::ensure!(!errors, "Script contains invalid Shift-JIS");
+            let mut content = content.into_owned();
+            if expand_parameter_group(&mut content, &script_name, index, &entries)? {
+                update_script_file(&path, &content)?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -978,7 +984,7 @@ fn update_script_file(script_path: &std::path::Path, script_content: &str) -> an
     }
     std::fs::write(script_path, encoded)?;
 
-    if !PARAMETER_REPLACED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+    if !PARAMETER_REPLACE_NOTIFIED.swap(true, std::sync::atomic::Ordering::SeqCst) {
         native_dialog::DialogBuilder::message()
             .set_title("rikky_modoki")
             .set_text("パラメーターが書き換えられました。AviUtl2を再起動すると反映されます。")
@@ -988,6 +994,45 @@ fn update_script_file(script_path: &std::path::Path, script_content: &str) -> an
             .map_err(|e| anyhow::anyhow!("Failed to show dialog: {}", e))?;
     }
     Ok(())
+}
+
+static REPLACED_PARAMETERS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashSet<ParamReplaceRequest>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ParamReplaceRequest {
+    script_name: String,
+    extension: String,
+    index: usize,
+}
+
+fn replace_parameter_with_done_check<F, R, E>(
+    script_name: &str,
+    extension: &str,
+    index: usize,
+    f: F,
+) -> Result<R, E>
+where
+    R: std::default::Default,
+    F: FnOnce() -> Result<R, E>,
+{
+    let request = ParamReplaceRequest {
+        script_name: script_name.to_owned(),
+        extension: extension.to_owned(),
+        index,
+    };
+    let mut replaced = REPLACED_PARAMETERS.lock().unwrap();
+    if replaced.contains(&request) {
+        tracing::debug!(
+            "Parameter replacement already performed for {:?}, skipping",
+            request
+        );
+        return Ok(R::default());
+    }
+    let result = f();
+    replaced.insert(request);
+    result
 }
 
 #[cfg(test)]
