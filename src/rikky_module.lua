@@ -1155,6 +1155,33 @@ local function multiply_matrix(a, b)
   return result
 end
 
+function rikky_module.fillarea(x, y, mode, threshold)
+  x, y = finite_number(x), finite_number(y)
+  assert(x == math.floor(x) and y == math.floor(y), "Invalid fill coordinates")
+  mode = image_integer(mode, 0, 24)
+  if threshold == nil then
+    threshold = 0
+  end
+  threshold = finite_number(threshold)
+  local maximum = ({ 255, 360, 100, 100, 255 })[math.floor(mode / 5) + 1]
+  assert(threshold >= 0 and threshold <= maximum, "Invalid fill threshold")
+  local data, width, height = obj.getpixeldata("object", "rgba")
+  if data == nil or x < 0 or y < 0 or x >= width or y >= height then
+    return false
+  end
+  local mask, mask_width, mask_height, lease, bounds = module.fillarea(data, width, height, x, y, mode, threshold)
+  if mask == nil then
+    return false
+  end
+  -- 同じ寸法の画像を書き戻す。書き戻し失敗時にも所有メモリを解放する。
+  local ok, err = pcall(obj.putpixeldata, "object", mask, mask_width, mask_height, "rgba")
+  module.image_release(lease)
+  if not ok then
+    error(err, 0)
+  end
+  return bounds[1], bounds[2], bounds[3], bounds[4]
+end
+
 function rikky_module.bordering(resolution, threshold, is_zoom, is_rotate, hq)
   local skip = 0
   if type(resolution) == "number" then

@@ -304,6 +304,21 @@ impl RikkyModokiMod2 {
         unsafe { crate::image::pixel(data, width, height, index) }
     }
 
+    #[allow(clippy::too_many_arguments)] // 公開Lua APIの開始座標と判定条件を渡す。
+    fn fillarea(
+        &self,
+        data: *const u8,
+        width: usize,
+        height: usize,
+        x: usize,
+        y: usize,
+        mode: usize,
+        threshold: f64,
+    ) -> aviutl2::common::AnyResult<Option<crate::image::FillAreaRead>> {
+        // SAFETY: Lua側でgetpixeldataの直後に呼び出し、その間画像を変更しない。
+        unsafe { crate::image::fillarea(data, width, height, [x, y], mode, threshold) }
+    }
+
     fn bordering(
         &self,
         data: *const u8,

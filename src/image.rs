@@ -27,6 +27,135 @@ impl AsScriptModuleUserData for ImageLease {}
 
 pub type ImageRead = (*const u8, usize, usize, ScriptModuleUserData<ImageLease>);
 
+pub type FillAreaRead = (
+    *const u8,
+    usize,
+    usize,
+    ScriptModuleUserData<ImageLease>,
+    Vec<usize>,
+);
+
+fn fill_component(pixel: &[u8], component: usize) -> f64 {
+    let [r, g, b] = [pixel[0], pixel[1], pixel[2]].map(f64::from);
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let delta = max - min;
+    match component {
+        0 => f64::from(pixel[3]),
+        1 if delta == 0.0 => 0.0,
+        1 => {
+            let sector = if max == r {
+                (g - b) / delta
+            } else if max == g {
+                (b - r) / delta + 2.0
+            } else {
+                (r - g) / delta + 4.0
+            };
+            (sector * 60.0).rem_euclid(360.0)
+        }
+        2 if max == 0.0 => 0.0,
+        2 => delta / max * 100.0,
+        3 => max / 255.0 * 100.0,
+        4 => 0.299 * r + 0.587 * g + 0.114 * b,
+        _ => unreachable!("Invalid fill component"),
+    }
+}
+
+fn fill_area(
+    source: &[u8],
+    width: usize,
+    height: usize,
+    start: [usize; 2],
+    mode: usize,
+    threshold: f64,
+) -> anyhow::Result<Option<(Image, Vec<usize>)>> {
+    anyhow::ensure!(mode <= 24, "Invalid fill mode");
+    let component = mode / 5;
+    let maximum = [255.0, 360.0, 100.0, 100.0, 255.0][component];
+    anyhow::ensure!(
+        (0.0..=maximum).contains(&threshold),
+        "Invalid fill threshold"
+    );
+    let [x, y] = start;
+    if x >= width || y >= height {
+        return Ok(None);
+    }
+    let origin = y * width + x;
+    let base = fill_component(&source[origin * 4..origin * 4 + 4], component);
+    let matches = |index: usize| {
+        let value = fill_component(&source[index * 4..index * 4 + 4], component);
+        match mode % 5 {
+            0 => value >= threshold,
+            1 => value <= threshold,
+            2 => value >= base,
+            3 => value <= base,
+            4 => value >= base - threshold && value <= base + threshold,
+            _ => unreachable!(),
+        }
+    };
+    if !matches(origin) {
+        return Ok(None);
+    }
+    let mut pixels = vec![0; source.len()];
+    // マスクのアルファを訪問済みフラグに兼用し、各選択画素を一度だけ積む。
+    let mut pending = vec![origin];
+    pixels[origin * 4..origin * 4 + 4].fill(255);
+    let (mut left, mut top, mut right, mut bottom) = (x, y, x, y);
+    while let Some(index) = pending.pop() {
+        let (x, y) = (index % width, index / width);
+        left = left.min(x);
+        top = top.min(y);
+        right = right.max(x);
+        bottom = bottom.max(y);
+        let neighbors = [
+            x.checked_sub(1).map(|x| y * width + x),
+            (x + 1 < width).then_some(index + 1),
+            y.checked_sub(1).map(|y| y * width + x),
+            (y + 1 < height).then_some(index + width),
+        ];
+        for neighbor in neighbors.into_iter().flatten() {
+            if pixels[neighbor * 4 + 3] == 0 && matches(neighbor) {
+                pixels[neighbor * 4..neighbor * 4 + 4].fill(255);
+                pending.push(neighbor);
+            }
+        }
+    }
+    Ok(Some((
+        Image {
+            width,
+            height,
+            pixels,
+        },
+        vec![left, top, right - left + 1, bottom - top + 1],
+    )))
+}
+
+/// data は width * height * 4 バイトの読み取り可能なRGBAデータを指すこと。
+pub unsafe fn fillarea(
+    data: *const u8,
+    width: usize,
+    height: usize,
+    start: [usize; 2],
+    mode: usize,
+    threshold: f64,
+) -> anyhow::Result<Option<FillAreaRead>> {
+    let len = byte_len(width, height)?;
+    anyhow::ensure!(!data.is_null(), "Image data is null");
+    // SAFETY: Lua側でgetpixeldataの直後に呼び、出力の生成中は入力を変更しない。
+    let source = unsafe { std::slice::from_raw_parts(data, len) };
+    let Some((image, bounds)) = fill_area(source, width, height, start, mode, threshold)? else {
+        return Ok(None);
+    };
+    let image = Arc::new(image);
+    Ok(Some((
+        image.pixels.as_ptr(),
+        width,
+        height,
+        ImageLease(Some(image)).into(),
+        bounds,
+    )))
+}
+
 impl ImageStore {
     fn read(&mut self, image: Arc<Image>, export: bool) -> ImageRead {
         let data = image.pixels.as_ptr();
@@ -523,6 +652,89 @@ pub unsafe fn linedetection(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fill_modes_include_boundaries_and_keep_the_seed_reference() -> anyhow::Result<()> {
+        // 各成分が左から 0, 中間値, 最大値になる画像。
+        let rows = [
+            [[0, 0, 0, 0], [0, 0, 0, 128], [0, 0, 0, 255]],
+            [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]],
+            [[255, 255, 255, 255], [255, 128, 128, 255], [255, 0, 0, 255]],
+            [[0, 0, 0, 255], [128, 128, 128, 255], [255, 255, 255, 255]],
+            [[0, 0, 0, 255], [128, 128, 128, 255], [255, 255, 255, 255]],
+        ];
+        for (component, row) in rows.iter().enumerate() {
+            let source = row.concat();
+            let base = fill_component(&row[1], component);
+            for comparison in 0..5 {
+                let mode = component * 5 + comparison;
+                let threshold = if comparison == 4 { 0.0 } else { base };
+                let (image, bounds) = fill_area(&source, 3, 1, [1, 0], mode, threshold)?.unwrap();
+                let expected = match comparison {
+                    0 | 2 => [false, true, true],
+                    1 | 3 => [true, true, false],
+                    _ => [false, true, false],
+                };
+                for (pixel, selected) in image.pixels.chunks_exact(4).zip(expected) {
+                    assert_eq!(
+                        pixel,
+                        if selected { &[255; 4] } else { &[0; 4] },
+                        "mode {mode}"
+                    );
+                }
+                assert_eq!(
+                    bounds,
+                    match comparison {
+                        0 | 2 => vec![1, 0, 2, 1],
+                        1 | 3 => vec![0, 0, 2, 1],
+                        _ => vec![1, 0, 1, 1],
+                    }
+                );
+            }
+            assert!(fill_area(&source, 3, 1, [0, 0], component * 5, base)?.is_none());
+            assert!(fill_area(&source, 3, 1, [2, 0], component * 5 + 1, base)?.is_none());
+        }
+        let source = [[0, 0, 0, 100], [0, 0, 0, 110], [0, 0, 0, 120]].concat();
+        let (_, bounds) = fill_area(&source, 3, 1, [0, 0], 4, 10.0)?.unwrap();
+        assert_eq!(bounds, vec![0, 0, 2, 1]);
+        assert_eq!(fill_component(&[255, 0, 255, 0], 1), 300.0);
+        assert_eq!(fill_component(&[0, 0, 0, 0], 2), 0.0);
+        assert_eq!(fill_component(&[255, 0, 0, 0], 4), 0.299 * 255.0);
+        Ok(())
+    }
+
+    #[test]
+    fn fill_connectivity_bounds_and_failures() -> anyhow::Result<()> {
+        let source: Vec<u8> = [
+            255, 255, 255, 0, 0, 255, 0, 255, 0, 0, 255, 255, 255, 0, 0, 0, 0, 0, 255, 0,
+        ]
+        .into_iter()
+        .flat_map(|alpha| [23, 45, 67, alpha])
+        .collect();
+        let original = source.clone();
+        let (mask, bounds) = fill_area(&source, 5, 4, [2, 2], 0, 255.0)?.unwrap();
+        assert_eq!(bounds, vec![0, 0, 3, 3]);
+        assert_eq!(
+            mask.pixels.chunks_exact(4).filter(|p| p[3] == 255).count(),
+            8
+        );
+        assert_eq!(&mask.pixels[24..28], &[0; 4]); // 穴
+        assert_eq!(&mask.pixels[72..76], &[0; 4]); // 斜めに接する独立領域
+        assert!(fill_area(&source, 5, 4, [5, 0], 0, 0.0)?.is_none());
+        assert!(fill_area(&source, 5, 4, [0, 4], 0, 0.0)?.is_none());
+        assert!(fill_area(&[], 0, 0, [0, 0], 0, 0.0)?.is_none());
+        for (mode, threshold) in [(25, 0.0), (0, -1.0), (5, 361.0), (10, 101.0), (0, f64::NAN)] {
+            assert!(fill_area(&source, 5, 4, [0, 0], mode, threshold).is_err());
+        }
+        assert_eq!(source, original);
+        let (_, bounds) = fill_area(&[1, 2, 3, 0], 1, 1, [0, 0], 1, 0.0)?.unwrap();
+        assert_eq!(bounds, vec![0, 0, 1, 1]);
+        let (mask, bounds) =
+            fill_area(&vec![255; 512 * 512 * 4], 512, 512, [511, 511], 0, 255.0)?.unwrap();
+        assert_eq!(bounds, vec![0, 0, 512, 512]);
+        assert!(mask.pixels.iter().all(|&byte| byte == 255));
+        Ok(())
+    }
 
     #[test]
     fn exports_images_with_compatible_paths_colors_and_quality() -> anyhow::Result<()> {
