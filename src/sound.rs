@@ -135,7 +135,13 @@ struct ObjectSoundAuf2Config {
     update_sound: fn(),
 }
 
-fn update_sound(edit: &mut aviutl2::generic::EditSection) -> aviutl2::common::AnyResult<()> {
+fn update_sound(
+    edit: &mut aviutl2::generic::EditSection,
+    _object: aviutl2::generic::ObjectHandle,
+    _effect_name: String,
+    _effect_index: usize,
+    _item: String,
+) -> aviutl2::common::AnyResult<()> {
     let object = edit
         .get_focused_object()?
         .ok_or_else(|| anyhow::anyhow!("No focused object"))?;
