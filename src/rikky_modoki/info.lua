@@ -36,9 +36,7 @@ return function(rikky_module, module)
         return module.project_dir()
       end
     elseif target == "focus" then
-      -- NOTE: 本来はcall_read_sectionで自身が選択されているかを見たほうがいいはず
-      -- 問題はobj.effect_layerはあるのにeffect_frameがないこと...
-      return obj.getoption("gui")
+      return module.is_effect_focused(obj.effect_id)
     elseif target == "blend" then
       if option == 1 then
         local value = obj.getvalue("標準描画", "合成モード")

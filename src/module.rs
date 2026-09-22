@@ -142,6 +142,25 @@ impl RikkyModokiMod2 {
         Ok(format!("{}\\", desktop_dir.to_string_lossy()))
     }
 
+    fn is_effect_focused(
+        &self,
+        effect_id: i64,
+        read: &aviutl2::generic::ReadSection,
+    ) -> aviutl2::common::AnyResult<bool> {
+        let Some(focused_object) = read.get_focused_object()? else {
+            return Ok(false);
+        };
+
+        let effects = read.get_effects(focused_object)?;
+        for effect in effects {
+            let id = read.get_effect_id(effect)?;
+            if id == effect_id {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     fn dir(
         &self,
         directory: String,

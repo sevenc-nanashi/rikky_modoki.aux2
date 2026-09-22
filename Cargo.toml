@@ -9,7 +9,7 @@ name = "rikky_modoki_aux2"
 
 [dependencies]
 anyhow = "1.0.104"
-aviutl2 = "0.46.1"
+aviutl2 = "0.47.0"
 dirs = "7.0.0"
 encoding_rs = "0.8.41"
 lazy-regex = "3.6.1"
