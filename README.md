@@ -182,10 +182,10 @@
   - [x] 後続の回転軸を固定・追従する指定
   - [x] 初期X軸・Y軸の指定
 - [ ] `setdialogparam`
-- [ ] `glassdraw_init`
-- [ ] `glassdraw`
-  - [ ] `obj.draw` 相当の描画
-  - [ ] `obj.drawpoly` 相当の描画
+- [x] `glassdraw_init`
+- [x] `glassdraw`
+  - [x] `obj.draw` 相当の描画
+  - [x] `obj.drawpoly` 相当の描画
 - [ ] `materialdraw_init`
   - [ ] テーブル指定：光源・材質の設定
   - [ ] `0`：設定の初期化
@@ -345,6 +345,52 @@
   - [x] `"start", タイトル[, 色]`：進捗ウィンドウを表示（色は `0xRRGGBB`、省略時は黒）
   - [x] `"processing", 進捗率`：進捗を更新・キャンセルを検知（100以上で自動終了）
   - [x] `"end"`：進捗ウィンドウを閉じる
+
+## ガラス描画
+
+`glassdraw_init` と `glassdraw` は AviUtl2 2.1.10 以降で利用できます。
+現在のオブジェクトのアルファを形として使い、背景を屈折・反転・着色して描画します。
+カメラ、billboard、多段のグループ制御（移動・中心・回転・軸別拡大率）に対応します。
+
+```lua
+local rikky = require("rikky_module")
+rikky.glassdraw_init({
+  refractive = 0.5,
+  offsetZ = 300,
+  zoom = 1.2,
+  lens = "convex",
+  boundary = "inverted",
+  blur = 3,
+})
+rikky.glassdraw()
+```
+
+`glassdraw_init()` は設定を既定値に戻し、呼び出し時点の画像と座標・カメラ・グループ情報を保存します。
+描画する各フレームで初期化してください。初期化後に画像や座標設定を変更する場合は、再度初期化してください。
+複数回の描画は `glassdraw(x, y, z, zoom, alpha, rx, ry, rz)` の引数で指定できます。
+引数0〜8個は通常描画、12・20・21個は `obj.drawpoly` と同じ頂点引数として扱います。
+元DLLと同様、明示したUVは元画像全体のUVに置き換えます。
+
+| 設定 | 動作（省略時） |
+| --- | --- |
+| `color` | 輝度差による単色化の色 `0xRRGGBB`（着色なし） |
+| `reverse` / `reverseUp` / `reverseSide` | 両方向／上下／左右を反転。数値の `1` で有効（無効） |
+| `blur` | 描画前のぼかし範囲、0〜30（なし） |
+| `refractive` / `offsetZ` | 屈折によるずれの強さ0〜1／仮想的な高さ（0／300） |
+| `zoom` | 背景の拡大率（1、0以下も1として扱う） |
+| `boundary` | `"loop"` で繰り返し、`"inverted"` で反射折り返し（端の色を延長） |
+| `lens` | `"convex"` で凸レンズ、`"concave"` で凹レンズ（なし） |
+| `async` | 数値の `1` で初期化時の背景を保持（描画ごとに背景を取得） |
+| `culling` | 数値の `1` で裏面を非表示（両面を描画） |
+
+背景はフレームバッファから取得します。元画像はコピーして保持し、描画後に復元します。
+元DLLの境界外参照は再現せず、負座標も範囲内に折り返します。
+幅または高さが1ピクセルの画像は、その軸の中央をサンプリングします。
+未初期化、不正な引数、退化した面や非有限座標ではエラーにします。
+旧AviUtlのYC変換とAviUtl2のRGBA取得、およびホストのぼかし処理の違いにより、画素単位での完全一致は保証しません。
+
+検証は `cargo test` と `ruby tests/glassdraw.rb` で実行できます。
+Luaテストには `au2 prepare:aviutl2` で配置した開発環境のLuaJITを使い、ホスト関数をモックして描画・復元・画像解放を確認します。
 
 ## オブジェクトサウンド
 

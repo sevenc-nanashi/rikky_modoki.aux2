@@ -1,3 +1,4 @@
+mod glass;
 mod image;
 mod module;
 mod progress;

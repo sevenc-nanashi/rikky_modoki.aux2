@@ -1695,4 +1695,160 @@ function rikky_module.effect(index, num, ...)
   end
 end
 
+-- glassdrawの画像はeffectごとに所有し、別のスクリプトのinitで上書きしない。
+local glass_states = {}
+local glass_fields = {
+  "ox", "oy", "oz", "cx", "cy", "cz", "rx", "ry", "rz", "sx", "sy", "sz", "alpha"
+}
+
+local function glass_number(value, default)
+  local number = tonumber(value)
+  if number == nil then return default end -- 元DLLのlua_tonumberと既定値
+  return finite_number(number)
+end
+
+local function glass_integer(value, default)
+  local number = glass_number(value, default)
+  if number < 0 then return math.ceil(number) end
+  return math.floor(number)
+end
+
+local function glass_capture(target)
+  local data, width, height = obj.getpixeldata(target, "rgba")
+  return module.glass_capture(data, width, height)
+end
+
+local function glass_groups()
+  local groups = {}
+  if obj.getoption("drawtarget") == "tempbuffer" or not obj.getoption("enable_group") then
+    return groups
+  end
+  local index, previous = 0, nil
+  while true do
+    local layer = obj.getoption("group_info", index)
+    if layer == 0 then break end
+    -- index未対応のホストで無限に同じレイヤーを取得しない。
+    assert(layer ~= previous, "glassdraw requires AviUtl2 2.1.10 or later")
+    for _, field in ipairs({ "x", "y", "z", "cx", "cy", "cz", "rx", "ry", "rz", "sx", "sy", "sz" }) do
+      groups[#groups + 1] = obj.getvalue("layer" .. layer .. "." .. field)
+    end
+    index, previous = index + 1, layer
+  end
+  return groups
+end
+
+local function glass_release_state(state)
+  if state ~= nil then
+    if state.original ~= nil then module.glass_release(state.original) end
+    if state.background ~= nil then module.glass_release(state.background) end
+  end
+end
+
+function rikky_module.glassdraw_init(settings)
+  local id = obj.effect_id
+  glass_release_state(glass_states[id])
+  glass_states[id] = nil
+  local state = {}
+  local ok, err = pcall(function()
+    local table_settings = type(settings) == "table"
+    if not table_settings then settings = {} end
+    local reverse = 0
+    if glass_integer(settings.reverse, 0) == 1 then
+      reverse = 3
+    else
+      if glass_integer(settings.reverseUp, 0) == 1 then reverse = reverse + 1 end
+      if glass_integer(settings.reverseSide, 0) == 1 then reverse = reverse + 2 end
+    end
+    local color = glass_integer(settings.color, -1) % 4294967296
+    if color >= 2147483648 then color = color - 4294967296 end
+    local blur = glass_integer(settings.blur, 0) % 65536
+    if blur >= 32768 then blur = blur - 65536 end
+    state.blur = table_settings and clamp(blur, 0, 30) or -1
+    local zoom = glass_number(settings.zoom, 1)
+    if zoom <= 0 then zoom = 1 end
+    local boundary, lens = 0, 0
+    if settings.boundary == "loop" then boundary = 1 end
+    if settings.boundary == "inverted" then boundary = 2 end
+    if settings.lens == "convex" then lens = 1 end
+    if settings.lens == "concave" then lens = 2 end
+    state.settings = {
+      color = color, reverse = reverse, boundary = boundary, lens = lens,
+      culling = glass_integer(settings.culling, 0) % 256 == 1,
+      refractive = clamp(glass_number(settings.refractive, 0), 0, 1),
+      offset_z = math.max(0, glass_number(settings.offsetZ, 300)), inverse_zoom = 1 / zoom,
+    }
+    state.pose = { x = obj.x, y = obj.y, z = obj.z, billboard = obj.getoption("billboard") }
+    for _, field in ipairs(glass_fields) do state.pose[field] = obj[field] end
+    state.pose.base_sx, state.pose.base_sy, state.pose.base_sz = obj.getvalue("scale")
+    state.camera = obj.getoption("camera_param")
+    state.camera.mode = obj.getoption("camera_mode")
+    state.groups = glass_groups()
+    state.original = glass_capture("object")
+    if glass_integer(settings.async, 0) == 1 then
+      state.background = glass_capture("framebuffer")
+    end
+  end)
+  if not ok then
+    glass_release_state(state)
+    error(err, 0)
+  end
+  glass_states[id] = state
+end
+
+function rikky_module.glassdraw(...)
+  local state = glass_states[obj.effect_id]
+  assert(state ~= nil, "Call glassdraw_init before glassdraw")
+  local count, args = select("#", ...), { ... }
+  assert(count <= 8 or count == 12 or count == 20 or count == 21, "Invalid glassdraw argument count")
+  for i = 1, count do args[i] = finite_number(tonumber(args[i])) end
+  local saved = {}
+  for _, field in ipairs(glass_fields) do saved[field] = obj[field] end
+  local background, output, modified
+  local ok, err = pcall(function()
+    background = state.background
+    if background == nil then background = glass_capture("framebuffer") end
+    output = module.glass_render(state.original, background, state.settings,
+      state.pose, state.camera, args, state.groups)
+    if output == nil then
+      obj.setoption("draw_state", true)
+      return
+    end
+    local data, width, height = module.glass_data(output)
+    modified = true
+    obj.clearbuffer("object", width, height)
+    obj.putpixeldata("object", data, width, height, "rgba")
+    if state.blur > 0 then obj.effect("ぼかし", "範囲", state.blur, "サイズ固定", 1) end
+    if count > 8 then
+      if count > 12 then
+        -- 元DLLは明示UVも元画像全体に置き換える。
+        args[13], args[14], args[15], args[16] = 0, 0, width, 0
+        args[17], args[18], args[19], args[20] = width, height, 0, height
+      end
+      obj.drawpoly(unpack(args, 1, count))
+    else
+      obj.draw(unpack(args, 1, count))
+    end
+  end)
+  local restore_ok, restore_err = true, nil
+  if modified then
+    restore_ok, restore_err = pcall(function()
+      local data, width, height = module.glass_data(state.original)
+      obj.clearbuffer("object", width, height)
+      obj.putpixeldata("object", data, width, height, "rgba")
+    end)
+    -- zoom/aspectはsx/syの別名なので、軸別拡大率の復元後に書き戻さない。
+    local fields_ok, fields_err = pcall(function()
+      for _, field in ipairs(glass_fields) do obj[field] = saved[field] end
+    end)
+    if restore_ok and not fields_ok then restore_ok, restore_err = fields_ok, fields_err end
+  end
+  if output ~= nil then module.glass_release(output) end
+  if background ~= nil and state.background == nil then module.glass_release(background) end
+  if not restore_ok then
+    if not ok then error(tostring(err) .. "\nImage restoration failed: " .. tostring(restore_err), 0) end
+    error(restore_err, 0)
+  end
+  if not ok then error(err, 0) end
+end
+
 return rikky_module

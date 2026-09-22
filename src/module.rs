@@ -25,6 +25,41 @@ impl aviutl2::module::ScriptModule for RikkyModokiMod2 {
 
 #[aviutl2::module::functions]
 impl RikkyModokiMod2 {
+    fn glass_capture(
+        &self,
+        data: *const u8,
+        width: usize,
+        height: usize,
+    ) -> aviutl2::common::AnyResult<crate::glass::Lease> {
+        // SAFETY: Lua側でgetpixeldataの直後に呼び出す。
+        unsafe { crate::glass::capture(data, width, height) }
+    }
+
+    fn glass_data(
+        &self,
+        lease: crate::glass::Lease,
+    ) -> aviutl2::common::AnyResult<(*const u8, usize, usize)> {
+        crate::glass::data(lease)
+    }
+
+    fn glass_release(&self, lease: crate::glass::Lease) {
+        crate::glass::release(lease);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn glass_render(
+        &self,
+        original: crate::glass::Lease,
+        background: crate::glass::Lease,
+        settings: crate::glass::Settings,
+        pose: crate::glass::Pose,
+        camera: crate::glass::Camera,
+        args: Vec<f64>,
+        groups: Vec<f64>,
+    ) -> aviutl2::common::AnyResult<Option<crate::glass::Lease>> {
+        crate::glass::render(original, background, settings, pose, camera, args, groups)
+    }
+
     fn is_development(&self) -> bool {
         cfg!(debug_assertions)
     }
