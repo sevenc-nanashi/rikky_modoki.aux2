@@ -161,53 +161,59 @@ function rikky_module.getinfo(target, option)
       end
     end
   elseif target == "group" then
-    local group_layer = obj.getoption("group_info")
-    local buffer = obj.getoption("drawtarget");
-    if buffer == "tempbuffer" or group_layer == 0 then
-      return {
-        zoom = 1,
-        x = 0,
-        y = 0,
-        z = 0,
-        Xx = 1,
-        Xy = 0,
-        Xz = 0,
-        Yx = 0,
-        Yy = 1,
-        Yz = 0,
-        Zx = 0,
-        Zy = 0,
-        Zz = 1,
-      }, false
+    local group = {
+      zoom = 1,
+      x = 0,
+      y = 0,
+      z = 0,
+      Xx = 1,
+      Xy = 0,
+      Xz = 0,
+      Yx = 0,
+      Yy = 1,
+      Yz = 0,
+      Zx = 0,
+      Zy = 0,
+      Zz = 1,
+    }
+    if obj.getoption("drawtarget") == "tempbuffer" then
+      return group, false
     end
 
-    local group_x = obj.getvalue(group_layer, "グループ制御", "X")
-    local group_y = obj.getvalue(group_layer, "グループ制御", "Y")
-    local group_z = obj.getvalue(group_layer, "グループ制御", "Z")
-    local group_rotation_x = math.rad(obj.getvalue(group_layer, "グループ制御", "X軸回転"))
-    local group_rotation_y = math.rad(obj.getvalue(group_layer, "グループ制御", "Y軸回転"))
-    local group_rotation_z = math.rad(obj.getvalue(group_layer, "グループ制御", "Z軸回転"))
-    local group_zoom = obj.getvalue(group_layer, "グループ制御", "拡大率") / 100
-    local sx, cx = math.sin(group_rotation_x), math.cos(group_rotation_x)
-    local sy, cy = math.sin(group_rotation_y), math.cos(group_rotation_y)
-    local sz, cz = math.sin(group_rotation_z), math.cos(group_rotation_z)
+    local index = 0
+    local group_layer = obj.getoption("group_info", index)
+    while group_layer ~= 0 do
+      local group_x = obj.getvalue(group_layer, "グループ制御", "X")
+      local group_y = obj.getvalue(group_layer, "グループ制御", "Y")
+      local group_z = obj.getvalue(group_layer, "グループ制御", "Z")
+      local group_rotation_x = math.rad(obj.getvalue(group_layer, "グループ制御", "X軸回転"))
+      local group_rotation_y = math.rad(obj.getvalue(group_layer, "グループ制御", "Y軸回転"))
+      local group_rotation_z = math.rad(obj.getvalue(group_layer, "グループ制御", "Z軸回転"))
+      local group_zoom = obj.getvalue(group_layer, "グループ制御", "拡大率") / 100
+      local sx, cx = math.sin(group_rotation_x), math.cos(group_rotation_x)
+      local sy, cy = math.sin(group_rotation_y), math.cos(group_rotation_y)
+      local sz, cz = math.sin(group_rotation_z), math.cos(group_rotation_z)
 
-    return {
-          zoom = group_zoom,
-          x = group_x,
-          y = group_y,
-          z = group_z,
-          Xx = cy * cz,
-          Xy = cx * sz + sx * sy * cz,
-          Xz = sx * sz - cx * sy * cz,
-          Yx = -cy * sz,
-          Yy = cx * cz - sx * sy * sz,
-          Yz = sx * cz + cx * sy * sz,
-          Zx = sy,
-          Zy = -sx * cy,
-          Zz = cx * cy,
-        },
-        true
+      local Xx, Xy, Xz = cy * cz, cx * sz + sx * sy * cz, sx * sz - cx * sy * cz
+      local Yx, Yy, Yz = -cy * sz, cx * cz - sx * sy * sz, sx * cz + cx * sy * sz
+      local Zx, Zy, Zz = sy, -sx * cy, cx * cy
+
+      -- 直前のグループから上位へ、合成済みの移動と各軸に変換を適用する。
+      local x, y, z = group.x, group.y, group.z
+      group.x = group_zoom * (Xx * x + Yx * y + Zx * z) + group_x
+      group.y = group_zoom * (Xy * x + Yy * y + Zy * z) + group_y
+      group.z = group_zoom * (Xz * x + Yz * y + Zz * z) + group_z
+      for _, axis in ipairs({ "X", "Y", "Z" }) do
+        x, y, z = group[axis .. "x"], group[axis .. "y"], group[axis .. "z"]
+        group[axis .. "x"] = Xx * x + Yx * y + Zx * z
+        group[axis .. "y"] = Xy * x + Yy * y + Zy * z
+        group[axis .. "z"] = Xz * x + Yz * y + Zz * z
+      end
+      group.zoom = group.zoom * group_zoom
+      index = index + 1
+      group_layer = obj.getoption("group_info", index)
+    end
+    return group, index > 0
   elseif target == "root" then
     return module.scene_id()
   elseif target == "text" then
