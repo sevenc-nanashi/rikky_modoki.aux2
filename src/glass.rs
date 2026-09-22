@@ -7,20 +7,20 @@ type V3 = [f64; 3];
 type V2 = [f64; 2];
 
 pub struct Image {
-    width: usize,
-    height: usize,
-    pixels: Vec<u8>,
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) pixels: Vec<u8>,
 }
 
 pub struct ImageLease(Option<Arc<Image>>);
 impl AsScriptModuleUserData for ImageLease {}
 pub type Lease = ScriptModuleUserData<ImageLease>;
 
-fn owned(image: Image) -> Lease {
+pub(crate) fn owned(image: Image) -> Lease {
     ImageLease(Some(Arc::new(image))).into()
 }
 
-fn image(lease: &Lease) -> anyhow::Result<Arc<Image>> {
+pub(crate) fn image(lease: &Lease) -> anyhow::Result<Arc<Image>> {
     lease
         .lock()
         .unwrap()
@@ -141,7 +141,7 @@ fn unit(a: V3) -> anyhow::Result<V3> {
 }
 
 // AviUtlのオイラー角はZ→Y→X。角度はホストから度数法で受け取る。
-fn rotate(p: V3, angles: V3) -> V3 {
+pub(crate) fn rotate(p: V3, angles: V3) -> V3 {
     let [x, y, z] = angles.map(f64::to_radians);
     let (sx, cx) = x.sin_cos();
     let (sy, cy) = y.sin_cos();
@@ -151,7 +151,7 @@ fn rotate(p: V3, angles: V3) -> V3 {
     [a, cx * b - sx * c, sx * b + cx * c]
 }
 
-struct View {
+pub(crate) struct View {
     eye: V3,
     right: V3,
     up: V3,
@@ -162,7 +162,7 @@ struct View {
 }
 
 impl Camera {
-    fn view(&self) -> anyhow::Result<View> {
+    pub(crate) fn view(&self) -> anyhow::Result<View> {
         let eye = [self.x, self.y, self.z];
         let forward = unit(sub([self.tx, self.ty, self.tz], eye))?;
         let right = unit(cross(forward, [self.ux, self.uy, self.uz]))?;
@@ -184,7 +184,7 @@ impl Camera {
 }
 
 // 各グループは position, center, rotation, scale の12要素。直前→上位の順。
-fn group_point(mut p: V3, groups: &[f64]) -> V3 {
+pub(crate) fn group_point(mut p: V3, groups: &[f64]) -> V3 {
     for g in groups.chunks_exact(12) {
         p = add(
             rotate(
@@ -218,7 +218,7 @@ fn billboard(p: V3, mode: i32, view: &View) -> V3 {
     }
 }
 
-fn world_quad(
+pub(crate) fn world_quad(
     width: usize,
     height: usize,
     pose: &Pose,
@@ -283,12 +283,7 @@ fn world_quad(
     Ok(corners)
 }
 
-fn project(
-    corners: [V3; 4],
-    view: &View,
-    settings: &Settings,
-    size: [usize; 2],
-) -> anyhow::Result<Option<[V2; 4]>> {
+pub(crate) fn surface(corners: [V3; 4]) -> anyhow::Result<(V3, V3)> {
     let center = corners.into_iter().fold([0.; 3], add).map(|v| v * 0.25);
     // 頂点が時計回りの面は-Z向き。三角形（重複頂点）も扱う。
     let mut normal = cross(sub(corners[2], corners[0]), sub(corners[1], corners[0]));
@@ -296,6 +291,16 @@ fn project(
         normal = cross(sub(corners[3], corners[0]), sub(corners[2], corners[0]));
     }
     let normal = unit(normal)?;
+    Ok((center, normal))
+}
+
+fn project(
+    corners: [V3; 4],
+    view: &View,
+    settings: &Settings,
+    size: [usize; 2],
+) -> anyhow::Result<Option<[V2; 4]>> {
+    let (center, normal) = surface(corners)?;
     let facing = dot(
         if view.mode == 0 {
             view.forward

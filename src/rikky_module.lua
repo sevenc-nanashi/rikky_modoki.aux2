@@ -1161,11 +1161,14 @@ local function multiply_matrix(a, b)
   return result
 end
 
-function rikky_module.camerainfo(args)
-  if args == nil then
+function rikky_module.camerainfo(arg_or_table, ...)
+  local args
+  if arg_or_table == nil then
     args = {}
   end
-  assert(type(args) == "table", "Expected draw arguments")
+  if type(arg_or_table) ~= "table" then
+    args = { arg_or_table, ... }
+  end
   local count = #args
   assert(count <= 8 or count == 12 or count == 20 or count == 21, "Invalid draw argument count")
   local values = {}
@@ -1744,6 +1747,16 @@ local function glass_release_state(state)
   end
 end
 
+local function capture_draw_state(state)
+  state.pose = { x = obj.x, y = obj.y, z = obj.z, billboard = obj.getoption("billboard") }
+  for _, field in ipairs(glass_fields) do state.pose[field] = obj[field] end
+  state.pose.base_sx, state.pose.base_sy, state.pose.base_sz = obj.getvalue("scale")
+  state.camera = obj.getoption("camera_param")
+  state.camera.mode = obj.getoption("camera_mode")
+  state.groups = glass_groups()
+  state.original = glass_capture("object")
+end
+
 function rikky_module.glassdraw_init(settings)
   local id = obj.effect_id
   glass_release_state(glass_states[id])
@@ -1777,13 +1790,7 @@ function rikky_module.glassdraw_init(settings)
       refractive = clamp(glass_number(settings.refractive, 0), 0, 1),
       offset_z = math.max(0, glass_number(settings.offsetZ, 300)), inverse_zoom = 1 / zoom,
     }
-    state.pose = { x = obj.x, y = obj.y, z = obj.z, billboard = obj.getoption("billboard") }
-    for _, field in ipairs(glass_fields) do state.pose[field] = obj[field] end
-    state.pose.base_sx, state.pose.base_sy, state.pose.base_sz = obj.getvalue("scale")
-    state.camera = obj.getoption("camera_param")
-    state.camera.mode = obj.getoption("camera_mode")
-    state.groups = glass_groups()
-    state.original = glass_capture("object")
+    capture_draw_state(state)
     if glass_integer(settings.async, 0) == 1 then
       state.background = glass_capture("framebuffer")
     end
@@ -1795,20 +1802,19 @@ function rikky_module.glassdraw_init(settings)
   glass_states[id] = state
 end
 
-function rikky_module.glassdraw(...)
-  local state = glass_states[obj.effect_id]
-  assert(state ~= nil, "Call glassdraw_init before glassdraw")
+local function draw_arguments(...)
   local count, args = select("#", ...), { ... }
-  assert(count <= 8 or count == 12 or count == 20 or count == 21, "Invalid glassdraw argument count")
+  assert(count <= 8 or count == 12 or count == 20 or count == 21, "Invalid draw argument count")
   for i = 1, count do args[i] = finite_number(tonumber(args[i])) end
+  return count, args
+end
+
+local function draw_processed_image(state, count, args, render, replace_uv)
   local saved = {}
   for _, field in ipairs(glass_fields) do saved[field] = obj[field] end
-  local background, output, modified
+  local output, modified
   local ok, err = pcall(function()
-    background = state.background
-    if background == nil then background = glass_capture("framebuffer") end
-    output = module.glass_render(state.original, background, state.settings,
-      state.pose, state.camera, args, state.groups)
+    output = render()
     if output == nil then
       obj.setoption("draw_state", true)
       return
@@ -1819,7 +1825,7 @@ function rikky_module.glassdraw(...)
     obj.putpixeldata("object", data, width, height, "rgba")
     if state.blur > 0 then obj.effect("ぼかし", "範囲", state.blur, "サイズ固定", 1) end
     if count > 8 then
-      if count > 12 then
+      if replace_uv and count > 12 then
         -- 元DLLは明示UVも元画像全体に置き換える。
         args[13], args[14], args[15], args[16] = 0, 0, width, 0
         args[17], args[18], args[19], args[20] = width, height, 0, height
@@ -1843,12 +1849,319 @@ function rikky_module.glassdraw(...)
     if restore_ok and not fields_ok then restore_ok, restore_err = fields_ok, fields_err end
   end
   if output ~= nil then module.glass_release(output) end
-  if background ~= nil and state.background == nil then module.glass_release(background) end
   if not restore_ok then
     if not ok then error(tostring(err) .. "\nImage restoration failed: " .. tostring(restore_err), 0) end
     error(restore_err, 0)
   end
   if not ok then error(err, 0) end
+end
+
+function rikky_module.glassdraw(...)
+  local state = glass_states[obj.effect_id]
+  assert(state ~= nil, "Call glassdraw_init before glassdraw")
+  local count, args = draw_arguments(...)
+  local background
+  local ok, err = pcall(draw_processed_image, state, count, args, function()
+    background = state.background
+    if background == nil then background = glass_capture("framebuffer") end
+    return module.glass_render(state.original, background, state.settings,
+      state.pose, state.camera, args, state.groups)
+  end, true)
+  if background ~= nil and state.background == nil then module.glass_release(background) end
+  if not ok then error(err, 0) end
+end
+
+local material_states = {}
+
+local function material_defaults()
+  local settings = {
+    light_count = 0, lights = {}, shininess = 0,
+    ambient_r = 0, ambient_g = 0, ambient_b = 0,
+    specular_r = 0, specular_g = 0, specular_b = 0,
+    emissive_r = 0, emissive_g = 0, emissive_b = 0,
+  }
+  for i = 1, 4 do
+    settings.lights[i] = { position = { 0, 0, 0 }, color = { 0, 0, 0 }, source = 0 }
+  end
+  return settings
+end
+
+local function material_component(values, key, index)
+  if type(values) ~= "table" then return nil end
+  local value = values[key]
+  -- 数値キーの成分指定は元DLLの公開仕様。数値文字列は設定値として扱わない。
+  if type(value) ~= "number" then value = values[index] end
+  if type(value) ~= "number" then return nil end
+  return finite_number(value)
+end
+
+local function material_update(previous, input)
+  local settings = material_defaults()
+  for key, value in pairs(previous) do
+    if key ~= "lights" then settings[key] = value end
+  end
+  for i, light in ipairs(previous.lights) do
+    settings.lights[i] = { position = { unpack(light.position) }, color = { unpack(light.color) }, source = light.source }
+  end
+  if type(input) ~= "table" then return settings end
+  if type(input.light_num) == "number" then
+    settings.light_count = clamp(glass_integer(input.light_num, 0), 0, 4)
+    for i = 1, settings.light_count do
+      local light, position, color = settings.lights[i], input["position" .. i], input["light" .. i]
+      for axis, key in ipairs({ "x", "y", "z" }) do
+        local value = material_component(position, key, axis)
+        if value ~= nil then light.position[axis] = value end
+      end
+      if type(position) == "table" then
+        local source = position.object
+        if type(source) ~= "string" then source = position[4] end
+        if type(source) ~= "string" or source == "" then
+          light.source = 0
+        elseif source == "camera" then
+          light.source = "camera"
+        else
+          assert(source ~= "shadow", "materialdraw: shadow light positions are unavailable in AviUtl2")
+          local layer = tonumber(source:match("^L([1-9]%d*)$"))
+          assert(layer ~= nil and layer <= 100, "Invalid material light source: " .. source)
+          light.source = layer
+        end
+      end
+      for channel, key in ipairs({ "R", "G", "B" }) do
+        local value = material_component(color, key, channel)
+        if value ~= nil then light.color[channel] = clamp(value / 255, 0, 1) end
+      end
+    end
+  end
+  for _, name in ipairs({ "ambient", "specular", "emissive" }) do
+    for channel, key in ipairs({ "R", "G", "B" }) do
+      local value = material_component(input[name], key, channel)
+      if value ~= nil then
+        if name == "ambient" then value = clamp(value / 100, 0, 1)
+        elseif name == "emissive" then value = clamp(glass_integer(value, 0), 0, 255)
+        else
+          -- 元DLLのspecular.Rだけ上限判定を誤る不具合は再現しない。
+          value = clamp(value, 0, 255)
+        end
+        settings[name .. "_" .. key:lower()] = value
+      end
+    end
+  end
+  if type(input.specular) == "table" and type(input.specular.shininess) == "number" then
+    settings.shininess = math.max(0, finite_number(input.specular.shininess) / 100)
+  end
+  return settings
+end
+
+function rikky_module.materialdraw_init(input)
+  local id, previous = obj.effect_id, material_states[obj.effect_id]
+  local settings
+  if previous == nil then settings = material_defaults() else settings = previous.settings end
+  glass_release_state(previous)
+  -- init失敗時に前フレームの画像で描画しない。設定のみ保持する。
+  material_states[id] = { settings = settings }
+  if type(input) == "number" and glass_integer(input, 0) == 0 then
+    material_states[id].settings = material_defaults()
+    return true
+  end
+  local state = { settings = material_update(settings, input), blur = 0, lights = {} }
+  local ok, err = pcall(function()
+    capture_draw_state(state)
+    for i = 1, state.settings.light_count do
+      local light = state.settings.lights[i]
+      if light.source == "camera" then
+        light.position = { state.camera.x, state.camera.y, state.camera.z }
+      elseif light.source ~= 0 then
+        local layer = "layer" .. light.source
+        -- 指定レイヤーが空なら座標指定を使うのが元APIの仕様。
+        if obj.getvalue(layer) then
+          light.position = module.material_layer_position({
+            obj.getvalue(layer .. ".x"), obj.getvalue(layer .. ".y"), obj.getvalue(layer .. ".z"),
+          }, state.groups)
+        end
+      end
+      for _, value in ipairs(light.position) do state.lights[#state.lights + 1] = value end
+      for _, value in ipairs(light.color) do state.lights[#state.lights + 1] = value end
+    end
+  end)
+  if not ok then
+    glass_release_state(state)
+    error(err, 0)
+  end
+  material_states[id] = state
+  return true
+end
+
+function rikky_module.materialdraw(...)
+  local state = material_states[obj.effect_id]
+  assert(state ~= nil and state.original ~= nil, "Call materialdraw_init before materialdraw")
+  local count, args = draw_arguments(...)
+  draw_processed_image(state, count, args, function()
+    return module.material_render(state.original, state.settings, state.pose, state.camera,
+      args, state.groups, state.lights)
+  end, false)
+end
+
+-- Exの既定値は旧materialdrawと異なり、RGBは名前付き成分のみを読む。
+local function material_ex_number(values, key, default)
+  if type(values) == "table" and type(values[key]) == "number" then
+    return finite_number(values[key])
+  end
+  return default
+end
+
+local function material_ex_layer(value)
+  local layer
+  if type(value) == "number" then
+    layer = glass_integer(value, 0)
+  elseif type(value) == "string" then
+    local offset = tonumber(value:match("^@([+-]?%d+)$"))
+    assert(offset ~= nil, "Invalid materialdrawEx layer: " .. value)
+    layer = obj.layer + offset
+  end
+  assert(layer ~= nil and layer >= 1 and layer <= 100 and layer ~= obj.layer,
+    "materialdrawEx: layer must be 1..100 and different from the current layer")
+  assert(obj.getvalue("layer" .. layer), "materialdrawEx: layer is empty")
+  return layer
+end
+
+local function material_ex_texture(state, option, light, material)
+  local source, layer = option.texture, nil
+  if type(source) ~= "string" or source:sub(1, 1) ~= "*" then
+    layer = material_ex_layer(source)
+    light.alpha = clamp(obj.getvalue("layer" .. layer .. ".alpha"), 0, 1)
+  end
+  local saved, texture = {}, nil
+  for _, field in ipairs(glass_fields) do saved[field] = obj[field] end
+  local ok, err = pcall(function()
+    if layer ~= nil then
+      assert(obj.load("layer", layer, true), "materialdrawEx: failed to load layer texture")
+    else
+      assert(obj.load("image", source:sub(2)), "materialdrawEx: failed to load image texture")
+    end
+    if light.width > 0 or light.height > 0 then
+      local width, height = obj.w, obj.h
+      if light.width > 0 then width = light.width end
+      if light.height > 0 then height = light.height end
+      obj.effect("リサイズ", "X", width / obj.w * 100, "Y", height / obj.h * 100)
+    end
+    texture = glass_capture("object")
+    module.material_ex_add_light(material, light, texture)
+  end)
+  local restore_ok, restore_err = pcall(function()
+    local data, width, height = module.glass_data(state.original)
+    obj.clearbuffer("object", width, height)
+    obj.putpixeldata("object", data, width, height, "rgba")
+  end)
+  local fields_ok, fields_err = pcall(function()
+    for _, field in ipairs(glass_fields) do obj[field] = saved[field] end
+  end)
+  if texture ~= nil then module.glass_release(texture) end
+  if restore_ok and not fields_ok then restore_ok, restore_err = fields_ok, fields_err end
+  if not restore_ok then
+    if not ok then error(tostring(err) .. "\nImage restoration failed: " .. tostring(restore_err), 0) end
+    error(restore_err, 0)
+  end
+  if not ok then error(err, 0) end
+end
+
+local function material_ex_light(state, input, material)
+  assert(type(input) == "table", "materialdrawEx: each light must be a table")
+  local position, option = input.position, input.option
+  if type(option) ~= "table" then option = {} end
+  local light = {
+    kind = 0, double = false, layer_rotation = false, rx = 0, ry = 0, rz = 0,
+    alpha = 1,
+    shininess = math.max(0, material_ex_number(input.specular, "shininess", 1000) / 100),
+    width = math.max(0, glass_integer(option.width, 0)),
+    height = math.max(0, glass_integer(option.height, 0)),
+    partition = math.max(1, glass_integer(option.partition, 2)),
+  }
+  local layer
+  if type(position) == "table" then
+    for _, axis in ipairs({ "x", "y", "z" }) do
+      light[axis] = material_ex_number(position, axis, 0)
+    end
+  elseif position == "camera" then
+    light.x, light.y, light.z = state.camera.x, state.camera.y, state.camera.z
+  else
+    assert(position ~= "shadow", "materialdrawEx: shadow light positions are unavailable in AviUtl2")
+    layer = material_ex_layer(position)
+    for _, axis in ipairs({ "x", "y", "z" }) do
+      light[axis] = obj.getvalue("layer" .. layer .. "." .. axis)
+      light["r" .. axis] = obj.getvalue("layer" .. layer .. ".r" .. axis)
+    end
+    light.layer_rotation = true
+  end
+  for _, channel in ipairs({ "R", "G", "B" }) do
+    light[channel:lower()] = clamp(material_ex_number(input.color, channel, 255) / 255, 0, 1)
+    local default = 100
+    if channel == "R" and type(input.specular) == "table" then default = 200 end
+    light["specular_" .. channel:lower()] = math.max(0, material_ex_number(input.specular, channel, default) / 100)
+  end
+  if option.type == "spotlight" then light.kind = 1 end
+  if option.type == "directlight" then light.kind = 2 end
+  local default_degree, default_z = 45, 1
+  if light.kind == 2 then default_degree, default_z = 10, -1 end
+  light.degree = clamp(material_ex_number(option, "degree", default_degree), 0, 90)
+  light.degree2 = clamp(material_ex_number(option, "degree2", light.degree), 0, 90)
+  light.nx, light.ny = material_ex_number(option, "nx", 0), material_ex_number(option, "ny", 0)
+  light.nz = material_ex_number(option, "nz", default_z)
+  light.wx, light.wy, light.wz = material_ex_number(option, "wx", 1),
+    material_ex_number(option, "wy", 0), material_ex_number(option, "wz", 0)
+  if light.kind == 1 then
+    -- 元DLLは値ではなく型を判定するため、double=falseも両面になる。
+    light.double = type(option.double) == "boolean"
+    for _, axis in ipairs({ "x", "y", "z" }) do
+      local key = "n" .. axis .. "2"
+      light[key] = material_ex_number(option, key, nil)
+    end
+  elseif light.kind == 2 then
+    light.double = option.double == true
+  end
+  if light.kind == 2 and option.texture ~= "color" then
+    material_ex_texture(state, option, light, material)
+  else
+    module.material_ex_add_light(material, light, nil)
+  end
+end
+
+local material_ex_id = 0
+function rikky_module.materialdrawEx(input)
+  assert(type(input) == "table", "materialdrawEx expects a settings table")
+  local state = { blur = 0 }
+  local material
+  local ok, err = pcall(function()
+    capture_draw_state(state)
+    local partition = glass_integer(input.drawhq_partition, 1) % 65536
+    if partition >= 32768 then partition = partition - 65536 end
+    local settings = {
+      hq = input.drawhq == true and type(input.drawhq_partition) == "number",
+      partition = math.max(1, partition), damping = math.max(0, material_ex_number(input, "damping", 0)),
+    }
+    for _, channel in ipairs({ "R", "G", "B" }) do
+      settings["ambient_" .. channel:lower()] = clamp(material_ex_number(input.ambient, channel, 0) / 255, 0, 1)
+      settings["emissive_" .. channel:lower()] = clamp(material_ex_number(input.emissive, channel, 10) / 100, 0, 1)
+    end
+    material = module.material_ex_create(state.original, settings)
+    if input.light ~= nil then
+      assert(type(input.light) == "table", "materialdrawEx: light must be an array")
+      for _, light in ipairs(input.light) do material_ex_light(state, light, material) end
+    end
+  end)
+  if not ok then glass_release_state(state); error(err, 0) end
+  material_ex_id = material_ex_id + 1
+  local result = { id = material_ex_id }
+  local function draw(self, polygon, ...)
+    assert(self == result, "Call materialdrawEx methods with ':'")
+    local count, args = draw_arguments(...)
+    assert((polygon and count > 8) or (not polygon and count <= 8), "Invalid materialdrawEx method arguments")
+    draw_processed_image(state, count, args, function()
+      return module.material_ex_render(material, state.pose, state.camera, args, state.groups)
+    end, false)
+  end
+  function result:draw(...) return draw(self, false, ...) end
+  function result:drawpoly(...) return draw(self, true, ...) end
+  return result
 end
 
 return rikky_module

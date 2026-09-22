@@ -60,6 +60,56 @@ impl RikkyModokiMod2 {
         crate::glass::render(original, background, settings, pose, camera, args, groups)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn material_render(
+        &self,
+        original: crate::glass::Lease,
+        settings: crate::material::Settings,
+        pose: crate::glass::Pose,
+        camera: crate::glass::Camera,
+        args: Vec<f64>,
+        groups: Vec<f64>,
+        lights: Vec<f64>,
+    ) -> aviutl2::common::AnyResult<crate::glass::Lease> {
+        crate::material::render(original, settings, pose, camera, args, groups, lights)
+    }
+
+    fn material_layer_position(
+        &self,
+        position: Vec<f64>,
+        groups: Vec<f64>,
+    ) -> aviutl2::common::AnyResult<Vec<f64>> {
+        crate::material::layer_position(position, groups)
+    }
+
+    fn material_ex_create(
+        &self,
+        original: crate::glass::Lease,
+        settings: crate::material_ex::Settings,
+    ) -> aviutl2::common::AnyResult<crate::material_ex::Handle> {
+        crate::material_ex::create(original, settings)
+    }
+
+    fn material_ex_add_light(
+        &self,
+        material: crate::material_ex::Handle,
+        light: crate::material_ex::LightInput,
+        texture: Option<crate::glass::Lease>,
+    ) -> aviutl2::common::AnyResult<()> {
+        crate::material_ex::add_light(&material, light, texture)
+    }
+
+    fn material_ex_render(
+        &self,
+        material: crate::material_ex::Handle,
+        pose: crate::glass::Pose,
+        camera: crate::glass::Camera,
+        args: Vec<f64>,
+        groups: Vec<f64>,
+    ) -> aviutl2::common::AnyResult<crate::glass::Lease> {
+        crate::material_ex::render(material, pose, camera, args, groups)
+    }
+
     fn is_development(&self) -> bool {
         cfg!(debug_assertions)
     }
