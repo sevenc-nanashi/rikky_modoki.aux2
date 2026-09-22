@@ -69,7 +69,7 @@ return function(rikky_module, module, draw, material)
           else
             assert(source ~= "shadow", "materialdraw: shadow light positions are unavailable in AviUtl2")
             local layer = tonumber(source:match("^L([1-9]%d*)$"))
-            assert(layer ~= nil and layer <= 100, "Invalid material light source: " .. source)
+            assert(layer ~= nil, "Invalid material light source: " .. source)
             light.source = layer
           end
         end
