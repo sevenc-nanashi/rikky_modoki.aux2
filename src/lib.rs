@@ -1,6 +1,5 @@
 mod glass;
 mod image;
-mod material;
 mod material_ex;
 mod module;
 mod progress;

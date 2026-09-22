@@ -25,89 +25,31 @@ impl aviutl2::module::ScriptModule for RikkyModokiMod2 {
 
 #[aviutl2::module::functions]
 impl RikkyModokiMod2 {
-    fn glass_capture(
+    #[allow(clippy::too_many_arguments)]
+    fn draw_constants(
         &self,
-        data: *const u8,
         width: usize,
         height: usize,
-    ) -> aviutl2::common::AnyResult<crate::glass::Lease> {
-        // SAFETY: Lua側でgetpixeldataの直後に呼び出す。
-        unsafe { crate::glass::capture(data, width, height) }
-    }
-
-    fn glass_data(
-        &self,
-        lease: crate::glass::Lease,
-    ) -> aviutl2::common::AnyResult<(*const u8, usize, usize)> {
-        crate::glass::data(lease)
-    }
-
-    fn glass_release(&self, lease: crate::glass::Lease) {
-        crate::glass::release(lease);
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn glass_render(
-        &self,
-        original: crate::glass::Lease,
-        background: crate::glass::Lease,
-        settings: crate::glass::Settings,
         pose: crate::glass::Pose,
         camera: crate::glass::Camera,
         args: Vec<f64>,
         groups: Vec<f64>,
-    ) -> aviutl2::common::AnyResult<Option<crate::glass::Lease>> {
-        crate::glass::render(original, background, settings, pose, camera, args, groups)
+    ) -> aviutl2::common::AnyResult<Vec<f64>> {
+        crate::glass::constants(width, height, pose, camera, args, groups)
     }
-
-    #[allow(clippy::too_many_arguments)]
-    fn material_render(
-        &self,
-        original: crate::glass::Lease,
-        settings: crate::material::Settings,
-        pose: crate::glass::Pose,
-        camera: crate::glass::Camera,
-        args: Vec<f64>,
-        groups: Vec<f64>,
-        lights: Vec<f64>,
-    ) -> aviutl2::common::AnyResult<crate::glass::Lease> {
-        crate::material::render(original, settings, pose, camera, args, groups, lights)
-    }
-
     fn material_layer_position(
         &self,
         position: Vec<f64>,
         groups: Vec<f64>,
     ) -> aviutl2::common::AnyResult<Vec<f64>> {
-        crate::material::layer_position(position, groups)
+        crate::glass::layer_position(position, groups)
     }
-
-    fn material_ex_create(
+    fn material_light_constants(
         &self,
-        original: crate::glass::Lease,
-        settings: crate::material_ex::Settings,
-    ) -> aviutl2::common::AnyResult<crate::material_ex::Handle> {
-        crate::material_ex::create(original, settings)
-    }
-
-    fn material_ex_add_light(
-        &self,
-        material: crate::material_ex::Handle,
         light: crate::material_ex::LightInput,
-        texture: Option<crate::glass::Lease>,
-    ) -> aviutl2::common::AnyResult<()> {
-        crate::material_ex::add_light(&material, light, texture)
-    }
-
-    fn material_ex_render(
-        &self,
-        material: crate::material_ex::Handle,
-        pose: crate::glass::Pose,
-        camera: crate::glass::Camera,
-        args: Vec<f64>,
-        groups: Vec<f64>,
-    ) -> aviutl2::common::AnyResult<crate::glass::Lease> {
-        crate::material_ex::render(material, pose, camera, args, groups)
+        textured: bool,
+    ) -> aviutl2::common::AnyResult<Vec<f64>> {
+        crate::material_ex::constants(light, textured)
     }
 
     fn is_development(&self) -> bool {
