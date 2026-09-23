@@ -44,7 +44,13 @@ return function(rikky_module, module)
           result[i - first + 1] = 20 * math.log(value) / math.log(10)
         end
       else
-        result[i - first + 1] = value
+        -- 旧版FOURIERは16bit PCMをHann窓で変換し、4/N倍して整数化する。
+        -- Rust側は単位振幅に正規化しているため、ここで旧版の単位へ戻す。
+        local scale = 32768
+        if i == 1 then
+          scale = scale * 2 -- Rust側だけDCを2/N倍にしている。
+        end
+        result[i - first + 1] = math.floor(value * scale)
       end
     end
     return result
@@ -76,7 +82,10 @@ return function(rikky_module, module)
     assert(channels == "stereo" or channels == "monaural", "Expected stereo or monaural")
     if size ~= nil then
       size = finite_number(size)
-      assert(size >= 1 and size == math.floor(size), "Expected a positive integer audio size")
+      assert(size >= 0 and size == math.floor(size), "Expected a nonnegative integer audio size")
+      if mode == "PCM" or mode == "SPECTRUM" then
+        assert(size >= 1, "Expected a positive audio size")
+      end
     end
     if position == "relative" then
       frame = frame + obj.originframe
@@ -104,8 +113,6 @@ return function(rikky_module, module)
         size = bins
       end
       assert(size <= bins, "Spectrum size exceeds the FFT bin count")
-    else
-      assert(size == nil, "FOURIER and DECIBEL do not accept a size")
     end
     local _, sample_rate = module.audio_buffer_info()
     local lower, upper = 0, sample_rate / 2

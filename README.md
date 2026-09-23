@@ -164,15 +164,15 @@
   - [x] カメラの方向を向く設定
   - [x] `obj.draw`・`obj.drawpoly` 相当の引数を反映した情報取得
   - グループ制御は `getinfo("group")` と同じ範囲に対応。カメラ面上の点や法線を定義できないポリゴンはエラー。
-- [ ] `audiobuffer`
-  - [ ] 引数なし：チャンネル数・サンプル周波数
-  - [ ] `"PCM"`：PCM 波形
-  - [ ] `"FOURIER"`：フーリエ変換
-  - [ ] `"SPECTRUM"`：スペクトラム
-  - [ ] デシベル（参照ファイルでは `"DESIBEL"`・`"DECIBEL"` の両表記あり）
-  - [ ] `"relative"`・`"absolute"`：相対・絶対フレーム指定
-  - [ ] `"stereo"`・`"monaural"`：ステレオ・モノラル
-  - [ ] 要素数・分解能・周波数範囲の指定
+- [x] `audiobuffer`
+  - [x] 引数なし：チャンネル数・サンプル周波数
+  - [x] `"PCM"`：PCM 波形
+  - [x] `"FOURIER"`：フーリエ変換
+  - [x] `"SPECTRUM"`：スペクトラム
+  - [x] デシベル（参照ファイルでは `"DESIBEL"`・`"DECIBEL"` の両表記あり）
+  - [x] `"relative"`・`"absolute"`：相対・絶対フレーム指定
+  - [x] `"stereo"`・`"monaural"`：ステレオ・モノラル
+  - [x] 要素数・分解能・周波数範囲の指定
 - [x] `colorconvert`
   - [x] `"rgb"`：RGB との相互変換
   - [x] `"yc"`：YCbCr との相互変換
