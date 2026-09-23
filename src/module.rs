@@ -88,6 +88,15 @@ impl RikkyModokiMod2 {
         crate::audiobuffer::pcm(frame, size)
     }
 
+    fn audio_buffer_fourier(
+        &self,
+        frame: i64,
+        resolution: usize,
+        monaural: bool,
+    ) -> aviutl2::common::AnyResult<(Vec<f64>, Vec<f64>)> {
+        crate::audiobuffer::fourier(frame, resolution, monaural)
+    }
+
     fn sound_length(&self, file: String) -> aviutl2::common::AnyResult<Option<f64>> {
         crate::objectsound::length(&file)
     }
@@ -1218,8 +1227,8 @@ mod tests {
         let expected = [
             "--rikky_modoki:dialog_info=size;color;fig;text;pos;long;local_name",
             "--value@size:サイズ,100",
-            "--value@color:色/col,0xff0000",
-            r#"--value@fig:図形/fig,"四角形""#,
+            "--color@color:色,0xff0000",
+            r#"--figure@fig:図形,"四角形""#,
             r#"--value@text:文字,"a;\"b,c=d""#,
             "--value@pos:座標,{1; {2, 3}; label='x;y'}",
             "--value@long:長文,[==[a;],=b]==]",

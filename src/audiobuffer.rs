@@ -1,4 +1,5 @@
 use aviutl2::{common::Rational32, filter::FilterConfigItems};
+mod analysis;
 use std::{
     collections::HashMap,
     sync::{Arc, LazyLock, Mutex, Weak},
@@ -158,22 +159,7 @@ fn read_pcm(
     frame: i64,
     size: Option<usize>,
 ) -> anyhow::Result<(Vec<f64>, Vec<f64>)> {
-    let selected = snapshots
-        .iter()
-        .filter(|audio| {
-            frame >= i64::from(audio.start)
-                && frame - i64::from(audio.start) < audio.frames.len() as i64
-        })
-        .max_by_key(|audio| audio.generation);
-    let samples = if let Some(audio) = selected {
-        anyhow::ensure!(
-            audio.format == format,
-            "シーンの音声設定が変更されています。「範囲内の音声をレンダリング」を押してください"
-        );
-        Some(&audio.frames[(frame - i64::from(audio.start)) as usize])
-    } else {
-        None
-    };
+    let samples = frame_samples(snapshots, format, frame)?;
     let count = match samples {
         Some(samples) => samples[0].len(),
         None => format.sample_count(frame),
@@ -197,6 +183,57 @@ fn read_pcm(
         }
     }
     Ok(result)
+}
+
+fn frame_samples(
+    snapshots: &[Arc<BakedAudio>],
+    format: Format,
+    frame: i64,
+) -> anyhow::Result<Option<&[Vec<f32>; 2]>> {
+    let selected = snapshots
+        .iter()
+        .filter(|audio| {
+            frame >= i64::from(audio.start)
+                && frame - i64::from(audio.start) < audio.frames.len() as i64
+        })
+        .max_by_key(|audio| audio.generation);
+    if let Some(audio) = selected {
+        anyhow::ensure!(
+            audio.format == format,
+            "シーンの音声設定が変更されています。「範囲内の音声をレンダリング」を押してください"
+        );
+        Ok(Some(
+            &audio.frames[(frame - i64::from(audio.start)) as usize],
+        ))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn fourier(
+    frame: i64,
+    resolution: usize,
+    monaural: bool,
+) -> anyhow::Result<(Vec<f64>, Vec<f64>)> {
+    anyhow::ensure!(
+        (i64::from(i32::MIN)..i64::from(i32::MAX)).contains(&frame),
+        "Audio frame is out of range"
+    );
+    anyhow::ensure!(resolution <= 3, "Audio resolution must be between 0 and 3");
+    let info = crate::EDIT_HANDLE.get_edit_info();
+    let format = Format {
+        fps: info.fps,
+        sample_rate: info.sample_rate as u32,
+    };
+    let snapshots = STORE.lock().unwrap().snapshots(info.scene_id);
+    let samples = analysis::read_window(
+        &snapshots,
+        format,
+        frame,
+        info.frame_max as i64,
+        1024 << resolution,
+    )?;
+    Ok(analysis::fourier(samples, resolution, monaural))
 }
 
 #[aviutl2::plugin(FilterPlugin)]
