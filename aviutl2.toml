@@ -9,6 +9,11 @@ version = "0.1.0"
 aviutl2_version = "latest"
 catalog_dependencies = ["KuroNeko.CopyAlias"]
 
+[catalog]
+id = "sevenc-nanashi.rikky_modoki-anm2"
+license_path = "./LICENSE"
+download_repo = { owner = "sevenc-nanashi", repo = "rikky_modoki.aux2" }
+
 [artifacts.rikky_module]
 source = "src/rikky_module.lua"
 destination = "Script/rikky_module.lua"
