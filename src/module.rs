@@ -73,11 +73,23 @@ impl RikkyModokiMod2 {
     }
 
     fn sound_receiving(&self, frame: u32) -> bool {
-        crate::sound::receiving(frame)
+        crate::objectsound::receiving(frame)
+    }
+
+    fn audio_buffer_info(&self) -> (u32, u32) {
+        crate::audiobuffer::info()
+    }
+
+    fn audio_buffer_pcm(
+        &self,
+        frame: i64,
+        size: Option<usize>,
+    ) -> aviutl2::common::AnyResult<(Vec<f64>, Vec<f64>)> {
+        crate::audiobuffer::pcm(frame, size)
     }
 
     fn sound_length(&self, file: String) -> aviutl2::common::AnyResult<Option<f64>> {
-        crate::sound::length(&file)
+        crate::objectsound::length(&file)
     }
 
     #[allow(clippy::too_many_arguments)] // soundregisterの引数に描画フレームを添えて渡す。
@@ -91,9 +103,9 @@ impl RikkyModokiMod2 {
         pan: f64,
         reverse: bool,
     ) -> aviutl2::common::AnyResult<bool> {
-        crate::sound::register(
+        crate::objectsound::register(
             origin_frame,
-            crate::sound::Sound {
+            crate::objectsound::Sound {
                 file,
                 frame,
                 volume,

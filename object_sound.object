@@ -1,0 +1,10 @@
+[Object]
+[Object.0]
+effect.name=オーディオバッファ
+オーディオバッファをクリア=0
+[Object.1]
+effect.name=音声再生
+音量=100.00
+左右=0.00
+[Object.2]
+effect.name=オーディオバッファ@rikky_modoki.aux2

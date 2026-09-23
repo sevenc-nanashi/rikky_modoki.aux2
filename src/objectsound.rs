@@ -105,6 +105,10 @@ pub fn receiving(frame: u32) -> bool {
     STORE.lock().unwrap().receiving(frame)
 }
 
+pub fn busy() -> bool {
+    STORE.lock().unwrap().capture.is_some()
+}
+
 pub fn register(frame: u32, sound: Sound) -> anyhow::Result<bool> {
     anyhow::ensure!(
         [sound.frame, sound.volume, sound.speed, sound.pan]
@@ -142,6 +146,11 @@ fn update_sound(
     _effect_index: usize,
     _item: String,
 ) -> aviutl2::common::AnyResult<()> {
+    let _start = crate::audiobuffer::RENDER_START.lock().unwrap();
+    anyhow::ensure!(
+        !crate::audiobuffer::busy(),
+        "オーディオバッファを生成中です（中止後は完了通知を待ってください）"
+    );
     let object = edit
         .get_focused_object()?
         .ok_or_else(|| anyhow::anyhow!("No focused object"))?;
