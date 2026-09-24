@@ -34,34 +34,49 @@ return function(rikky_module, module, draw, material)
   end
 
   local function material_component(values, key, index)
-    if type(values) ~= "table" then return nil end
+    if type(values) ~= "table" then
+      return nil
+    end
     local value = values[key]
     -- 数値キーの成分指定は元DLLの公開仕様。数値文字列は設定値として扱わない。
-    if type(value) ~= "number" then value = values[index] end
-    if type(value) ~= "number" then return nil end
+    if type(value) ~= "number" then
+      value = values[index]
+    end
+    if type(value) ~= "number" then
+      return nil
+    end
     return finite_number(value)
   end
 
   local function material_update(previous, input)
     local settings = material_defaults()
     for key, value in pairs(previous) do
-      if key ~= "lights" then settings[key] = value end
+      if key ~= "lights" then
+        settings[key] = value
+      end
     end
     for i, light in ipairs(previous.lights) do
-      settings.lights[i] = { position = { unpack(light.position) }, color = { unpack(light.color) }, source = light.source }
+      settings.lights[i] =
+        { position = { unpack(light.position) }, color = { unpack(light.color) }, source = light.source }
     end
-    if type(input) ~= "table" then return settings end
+    if type(input) ~= "table" then
+      return settings
+    end
     if type(input.light_num) == "number" then
       settings.light_count = clamp(glass_integer(input.light_num, 0), 0, 4)
       for i = 1, settings.light_count do
         local light, position, color = settings.lights[i], input["position" .. i], input["light" .. i]
         for axis, key in ipairs({ "x", "y", "z" }) do
           local value = material_component(position, key, axis)
-          if value ~= nil then light.position[axis] = value end
+          if value ~= nil then
+            light.position[axis] = value
+          end
         end
         if type(position) == "table" then
           local source = position.object
-          if type(source) ~= "string" then source = position[4] end
+          if type(source) ~= "string" then
+            source = position[4]
+          end
           if type(source) ~= "string" or source == "" then
             light.source = 0
           elseif source == "camera" then
@@ -75,7 +90,9 @@ return function(rikky_module, module, draw, material)
         end
         for channel, key in ipairs({ "R", "G", "B" }) do
           local value = material_component(color, key, channel)
-          if value ~= nil then light.color[channel] = clamp(value / 255, 0, 1) end
+          if value ~= nil then
+            light.color[channel] = clamp(value / 255, 0, 1)
+          end
         end
       end
     end
@@ -104,7 +121,11 @@ return function(rikky_module, module, draw, material)
   function rikky_module.materialdraw_init(input)
     local id, previous = obj.effect_id, material_states[obj.effect_id]
     local settings
-    if previous == nil then settings = material_defaults() else settings = previous.settings end
+    if previous == nil then
+      settings = material_defaults()
+    else
+      settings = previous.settings
+    end
     glass_release_state(previous)
     -- init失敗時に前フレームの画像で描画しない。設定のみ保持する。
     material_states[id] = { settings = settings }
@@ -116,8 +137,16 @@ return function(rikky_module, module, draw, material)
     local ok, err = pcall(function()
       capture_draw_state(state)
       local s = state.settings
-      state.base = { s.ambient_r, s.ambient_g, s.ambient_b, 0,
-        s.emissive_r / 255, s.emissive_g / 255, s.emissive_b / 255, 0 }
+      state.base = {
+        s.ambient_r,
+        s.ambient_g,
+        s.ambient_b,
+        0,
+        s.emissive_r / 255,
+        s.emissive_g / 255,
+        s.emissive_b / 255,
+        0,
+      }
       for i = 1, state.settings.light_count do
         local light = state.settings.lights[i]
         if light.source == "camera" then
@@ -127,12 +156,18 @@ return function(rikky_module, module, draw, material)
           -- 指定レイヤーが空なら座標指定を使うのが元APIの仕様。
           if obj.getvalue(layer) then
             light.position = module.material_layer_position({
-              obj.getvalue(layer .. ".x"), obj.getvalue(layer .. ".y"), obj.getvalue(layer .. ".z"),
+              obj.getvalue(layer .. ".x"),
+              obj.getvalue(layer .. ".y"),
+              obj.getvalue(layer .. ".z"),
             }, state.groups)
           end
         end
-        state.lights[#state.lights + 1] = gpu_point_light(light.position, light.color,
-          { s.specular_r / 255, s.specular_g / 255, s.specular_b / 255 }, s.shininess)
+        state.lights[#state.lights + 1] = gpu_point_light(
+          light.position,
+          light.color,
+          { s.specular_r / 255, s.specular_g / 255, s.specular_b / 255 },
+          s.shininess
+        )
       end
     end)
     if not ok then
@@ -147,7 +182,9 @@ return function(rikky_module, module, draw, material)
     local state = material_states[obj.effect_id]
     assert(state ~= nil and state.original ~= nil, "Call materialdraw_init before materialdraw")
     local count, args = draw_arguments(...)
-    draw_processed_image(state, count, args, function() return gpu_material(state, count, args) end)
+    draw_processed_image(state, count, args, function()
+      return gpu_material(state, count, args)
+    end)
   end
 
   -- Exの既定値は旧materialdrawと異なり、RGBは名前付き成分のみを読む。

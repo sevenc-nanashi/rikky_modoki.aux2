@@ -54,8 +54,8 @@ return function(rikky_module, module)
     local m, origin = previous_rotation, previous_center
     x, y, z = x - origin[1], y - origin[2], z - origin[3]
     return m[1] * x + m[2] * y + m[3] * z + origin[1],
-        m[4] * x + m[5] * y + m[6] * z + origin[2],
-        m[7] * x + m[8] * y + m[9] * z + origin[3]
+      m[4] * x + m[5] * y + m[6] * z + origin[2],
+      m[7] * x + m[8] * y + m[9] * z + origin[3]
   end
 
   function rikky_module.axisconvertEx(axes, radians, moving)

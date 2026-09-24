@@ -23,8 +23,8 @@ return function(rikky_module, module)
   function rikky_module.assign(mode, name, value)
     assert(mode == "make" or mode == "copy", "Unknown assign mode")
     local valid_name = type(name) == "string"
-        and name:match("^[A-Za-z_][A-Za-z0-9_]*$")
-        and loadstring("local " .. name) ~= nil
+      and name:match("^[A-Za-z_][A-Za-z0-9_]*$")
+      and loadstring("local " .. name) ~= nil
     if mode == "copy" then
       if valid_name then
         return _G[name]
@@ -33,8 +33,8 @@ return function(rikky_module, module)
     end
     local value_type = type(value)
     if
-        not valid_name
-        or (value_type ~= "string" and value_type ~= "number" and value_type ~= "boolean" and value_type ~= "table")
+      not valid_name
+      or (value_type ~= "string" and value_type ~= "number" and value_type ~= "boolean" and value_type ~= "table")
     then
       return false
     end

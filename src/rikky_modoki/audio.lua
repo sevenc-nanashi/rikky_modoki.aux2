@@ -106,7 +106,10 @@ return function(rikky_module, module)
       resolution = 1
     end
     resolution = finite_number(resolution)
-    assert(resolution >= 0 and resolution <= 3 and resolution == math.floor(resolution), "Expected resolution 0, 1, 2 or 3")
+    assert(
+      resolution >= 0 and resolution <= 3 and resolution == math.floor(resolution),
+      "Expected resolution 0, 1, 2 or 3"
+    )
     local bins = 512 * 2 ^ resolution
     if mode == "SPECTRUM" then
       if size == nil then

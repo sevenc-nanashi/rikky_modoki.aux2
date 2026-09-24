@@ -5,4 +5,6 @@
 --filter
 --text@code:コード,
 
-if #code > 0 then assert(loadstring(code))() end
+if #code > 0 then
+  assert(loadstring(code))()
+end

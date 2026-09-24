@@ -31,48 +31,28 @@ return function(rikky_module, module)
   function rikky_module.file(...)
     local indices = { ... }
     for _, index in ipairs(indices) do
-      module.rewrite_parameter(
-        get_script_name(),
-        "anm",
-        "file",
-        index
-      )
+      module.rewrite_parameter(get_script_name(), "anm", "file", index)
     end
   end
 
   function rikky_module.fold(...)
     local indices = { ... }
     for _, index in ipairs(indices) do
-      module.rewrite_parameter(
-        get_script_name(),
-        "anm",
-        "folder",
-        index
-      )
+      module.rewrite_parameter(get_script_name(), "anm", "folder", index)
     end
   end
 
   function rikky_module.font(...)
     local indices = { ... }
     for _, index in ipairs(indices) do
-      module.rewrite_parameter(
-        get_script_name(),
-        "anm",
-        "font",
-        index
-      )
+      module.rewrite_parameter(get_script_name(), "anm", "font", index)
     end
   end
 
   function rikky_module.checkbox(...)
     local indices = { ... }
     for _, index in ipairs(indices) do
-      module.rewrite_parameter(
-        get_script_name(),
-        "anm",
-        "check",
-        index
-      )
+      module.rewrite_parameter(get_script_name(), "anm", "check", index)
     end
   end
 
@@ -81,12 +61,7 @@ return function(rikky_module, module)
     local current = 1
     while current <= #indices do
       local index = indices[current]
-      module.rewrite_parameter(
-        get_script_name(),
-        "anm",
-        "color",
-        index
-      )
+      module.rewrite_parameter(get_script_name(), "anm", "color", index)
       if type(indices[current + 1]) ~= "number" then
         current = current + 2
       else
@@ -100,48 +75,28 @@ return function(rikky_module, module)
     for i = 1, #indices, 2 do
       local index = indices[i]
       local choices = indices[i + 1]
-      module.rewrite_select_parameter(
-        get_script_name(),
-        "anm",
-        index,
-        choices
-      )
+      module.rewrite_select_parameter(get_script_name(), "anm", index, choices)
     end
   end
 
   function rikky_module.fileCS(...)
     local indices = { ... }
     for _, index in ipairs(indices) do
-      module.rewrite_parameter(
-        get_script_name(),
-        "obj",
-        "file",
-        index
-      )
+      module.rewrite_parameter(get_script_name(), "obj", "file", index)
     end
   end
 
   function rikky_module.foldCS(...)
     local indices = { ... }
     for _, index in ipairs(indices) do
-      module.rewrite_parameter(
-        get_script_name(),
-        "obj",
-        "folder",
-        index
-      )
+      module.rewrite_parameter(get_script_name(), "obj", "folder", index)
     end
   end
 
   function rikky_module.fontCS(...)
     local indices = { ... }
     for _, index in ipairs(indices) do
-      module.rewrite_parameter(
-        get_script_name(),
-        "obj",
-        "font",
-        index
-      )
+      module.rewrite_parameter(get_script_name(), "obj", "font", index)
     end
   end
 
@@ -150,24 +105,14 @@ return function(rikky_module, module)
     for i = 1, #indices, 2 do
       local index = indices[i]
       local choices = indices[i + 1]
-      module.rewrite_select_parameter(
-        get_script_name(),
-        "obj",
-        index,
-        choices
-      )
+      module.rewrite_select_parameter(get_script_name(), "obj", index, choices)
     end
   end
 
   function rikky_module.checkboxCS(...)
     local indices = { ... }
     for _, index in ipairs(indices) do
-      module.rewrite_parameter(
-        get_script_name(),
-        "obj",
-        "check",
-        index
-      )
+      module.rewrite_parameter(get_script_name(), "obj", "check", index)
     end
   end
 
@@ -176,12 +121,7 @@ return function(rikky_module, module)
     local current = 1
     while current <= #indices do
       local index = indices[current]
-      module.rewrite_parameter(
-        get_script_name(),
-        "anm",
-        "color",
-        index
-      )
+      module.rewrite_parameter(get_script_name(), "anm", "color", index)
       if type(indices[current + 1]) ~= "number" then
         current = current + 2
       else
@@ -211,10 +151,10 @@ return function(rikky_module, module)
       assert(type(source) == "string" and not source:find("[\r\n]"), "Invalid parameter default")
       assert(
         type(minimum) == "number"
-        and type(maximum) == "number"
-        and minimum > -math.huge
-        and maximum < math.huge
-        and minimum <= maximum,
+          and type(maximum) == "number"
+          and minimum > -math.huge
+          and maximum < math.huge
+          and minimum <= maximum,
         "Invalid parameter range"
       )
       local evaluate = assert(loadstring("return (" .. source .. "\n)", "parameter default"))

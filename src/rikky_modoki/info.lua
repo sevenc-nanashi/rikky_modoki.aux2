@@ -184,13 +184,42 @@ return function(rikky_module, module)
     elseif target == "root" then
       return module.scene_id()
     elseif target == "text" then
+      local alias_value = ""
       if option == nil then
         -- obj.load("text")のテキストも返すらしいが、一旦パス...
         -- フックしてあげればできそうではあるが面倒
-        return obj.getvalue(obj.layer, "テキスト", "テキスト")
+        alias_value = obj.getvalue(obj.layer, "テキスト", "テキスト")
       else
-        return obj.getvalue(option, "テキスト", "テキスト")
+        alias_value = obj.getvalue(option, "テキスト", "テキスト")
       end
+      if not alias_value or alias_value == "" then
+        return ""
+      end
+      local text = ""
+      local position = 1
+      while position <= #alias_value do
+        local current = alias_value:sub(position, position)
+        if current == "\\" then
+          local next_char = alias_value:sub(position + 1, position + 1)
+          if next_char == "n" then
+            text = text .. "\r\n"
+            position = position + 2
+          elseif next_char == "t" then
+            text = text .. "\t"
+            position = position + 2
+          elseif next_char == "\\" then
+            text = text .. "\\"
+            position = position + 2
+          else
+            text = text .. current
+            position = position + 1
+          end
+        else
+          text = text .. current
+          position = position + 1
+        end
+      end
+      return text
     elseif target == "buffer" then
       local buffer = obj.getoption("drawtarget")
       if buffer == "tempbuffer" then
@@ -205,70 +234,74 @@ return function(rikky_module, module)
     elseif target == "object" then
       local script_name = module.script_name_of(obj.layer, obj.frame_s)
       if script_name == "動画ファイル" then
-        return script_name, {
-          file = obj.getvalue(obj.layer, script_name, "ファイル"),
-          loop = tonumber(obj.getvalue(obj.layer, script_name, "ループ再生")),
-          alphachannel = 1
-        }
+        return script_name,
+          {
+            file = obj.getvalue(obj.layer, script_name, "ファイル"),
+            loop = tonumber(obj.getvalue(obj.layer, script_name, "ループ再生")),
+            alphachannel = 1,
+          }
       elseif script_name == "画像ファイル" then
         return script_name, {
           file = obj.getvalue(obj.layer, script_name, "ファイル"),
         }
       elseif script_name == "テキスト" then
-        return script_name, {
-          color = tonumber(obj.getvalue(obj.layer, script_name, "文字色"), 16),
-          color2 = tonumber(obj.getvalue(obj.layer, script_name, "影・縁色"), 16),
-          type = ({
-            ["標準文字"] = 0,
-            ["影付き文字"] = 1,
-            ["影付き文字(薄)"] = 2,
-            ["縁取り文字"] = 3,
-            ["縁取り文字(細)"] = 4,
-            ["縁取り文字(太)"] = 5,
-            ["縁取り文字(角)"] = 6,
-          })[obj.getvalue(obj.layer, script_name, "文字装飾")],
-          autoadjust = tonumber(obj.getvalue(obj.layer, script_name, "オブジェクトの長さを自動調節")),
-          soft = 1,
-          monospace = 0,
-          align = ({
-            ["左寄せ[上]"] = 0,
-            ["中央揃え[上]"] = 1,
-            ["右寄せ[上]"] = 2,
-            ["左寄せ[中]"] = 3,
-            ["中央揃え[中]"] = 4,
-            ["右寄せ[中]"] = 5,
-            ["左寄せ[下]"] = 6,
-            ["中央揃え[下]"] = 7,
-            ["右寄せ[下]"] = 8,
-            ["縦書 上寄[右]"] = 9,
-            ["縦書 中央[右]"] = 10,
-            ["縦書 下寄[右]"] = 11,
-            ["縦書 上寄[中]"] = 12,
-            ["縦書 中央[中]"] = 13,
-            ["縦書 下寄[中]"] = 14,
-            ["縦書 上寄[左]"] = 15,
-            ["縦書 中央[左]"] = 16,
-            ["縦書 下寄[左]"] = 17,
-          })[obj.getvalue(obj.layer, script_name, "文字揃え")],
-          spacing_x = tonumber(obj.getvalue(obj.layer, script_name, "字間")),
-          spacing_y = tonumber(obj.getvalue(obj.layer, script_name, "行間")),
-          presision = 1,
-          font = obj.getvalue(obj.layer, script_name, "フォント"),
-          individual = tonumber(obj.getvalue(obj.layer, script_name, "文字毎に個別オブジェクト")),
-          display = tonumber(obj.getvalue(obj.layer, script_name, "移動座標上に表示")),
-          autoscroll = tonumber(obj.getvalue(obj.layer, script_name, "自動スクロール")),
-          bold = tonumber(obj.getvalue(obj.layer, script_name, "B")),
-          italic = tonumber(obj.getvalue(obj.layer, script_name, "I")),
-        }
+        return script_name,
+          {
+            color = tonumber(obj.getvalue(obj.layer, script_name, "文字色"), 16),
+            color2 = tonumber(obj.getvalue(obj.layer, script_name, "影・縁色"), 16),
+            type = ({
+              ["標準文字"] = 0,
+              ["影付き文字"] = 1,
+              ["影付き文字(薄)"] = 2,
+              ["縁取り文字"] = 3,
+              ["縁取り文字(細)"] = 4,
+              ["縁取り文字(太)"] = 5,
+              ["縁取り文字(角)"] = 6,
+            })[obj.getvalue(obj.layer, script_name, "文字装飾")],
+            autoadjust = tonumber(obj.getvalue(obj.layer, script_name, "オブジェクトの長さを自動調節")),
+            soft = 1,
+            monospace = 0,
+            align = ({
+              ["左寄せ[上]"] = 0,
+              ["中央揃え[上]"] = 1,
+              ["右寄せ[上]"] = 2,
+              ["左寄せ[中]"] = 3,
+              ["中央揃え[中]"] = 4,
+              ["右寄せ[中]"] = 5,
+              ["左寄せ[下]"] = 6,
+              ["中央揃え[下]"] = 7,
+              ["右寄せ[下]"] = 8,
+              ["縦書 上寄[右]"] = 9,
+              ["縦書 中央[右]"] = 10,
+              ["縦書 下寄[右]"] = 11,
+              ["縦書 上寄[中]"] = 12,
+              ["縦書 中央[中]"] = 13,
+              ["縦書 下寄[中]"] = 14,
+              ["縦書 上寄[左]"] = 15,
+              ["縦書 中央[左]"] = 16,
+              ["縦書 下寄[左]"] = 17,
+            })[obj.getvalue(obj.layer, script_name, "文字揃え")],
+            spacing_x = tonumber(obj.getvalue(obj.layer, script_name, "字間")),
+            spacing_y = tonumber(obj.getvalue(obj.layer, script_name, "行間")),
+            presision = 1,
+            font = obj.getvalue(obj.layer, script_name, "フォント"),
+            individual = tonumber(obj.getvalue(obj.layer, script_name, "文字毎に個別オブジェクト")),
+            display = tonumber(obj.getvalue(obj.layer, script_name, "移動座標上に表示")),
+            autoscroll = tonumber(obj.getvalue(obj.layer, script_name, "自動スクロール")),
+            bold = tonumber(obj.getvalue(obj.layer, script_name, "B")),
+            italic = tonumber(obj.getvalue(obj.layer, script_name, "I")),
+          }
       elseif script_name == "図形" then
-        return script_name, {
-          color = tonumber(obj.getvalue(obj.layer, script_name, "色"), 16),
-          figure = obj.getvalue(obj.layer, script_name, "図形の種類"),
-        }
+        return script_name,
+          {
+            color = tonumber(obj.getvalue(obj.layer, script_name, "色"), 16),
+            figure = obj.getvalue(obj.layer, script_name, "図形の種類"),
+          }
       elseif script_name == "フレームバッファ" then
-        return script_name, {
-          bufferclear = tonumber(obj.getvalue(obj.layer, script_name, "フレームバッファをクリア")),
-        }
+        return script_name,
+          {
+            bufferclear = tonumber(obj.getvalue(obj.layer, script_name, "フレームバッファをクリア")),
+          }
       elseif script_name == "音声波形表示" then
         local file = obj.getvalue(obj.layer, script_name, "ファイル")
         local mode = tonumber(obj.getvalue(obj.layer, script_name, "スペクトラム表示"))
@@ -287,28 +320,34 @@ return function(rikky_module, module)
         else
           wave_type = 1
         end
-        return "音声波形", {
-          color = tonumber(obj.getvalue(obj.layer, script_name, "波形の色"), 16),
-          projectsound = file and 0 or 1,
-          type = wave_type,
-          file = file,
-          mode = mode,
-          res_w = tonumber(obj.getvalue(obj.layer, script_name, "横解像度")),
-          res_h = tonumber(obj.getvalue(obj.layer, script_name, "縦解像度")),
-          pad_w = pad_w,
-          pad_h = pad_h,
-          mirror = mirror,
-        }
+        return "音声波形",
+          {
+            color = tonumber(obj.getvalue(obj.layer, script_name, "波形の色"), 16),
+            projectsound = file and 0 or 1,
+            type = wave_type,
+            file = file,
+            mode = mode,
+            res_w = tonumber(obj.getvalue(obj.layer, script_name, "横解像度")),
+            res_h = tonumber(obj.getvalue(obj.layer, script_name, "縦解像度")),
+            pad_w = pad_w,
+            pad_h = pad_h,
+            mirror = mirror,
+          }
       elseif script_name == "シーン" then
-        return script_name, {
-          scenenumber = tonumber(obj.getvalue(obj.layer, script_name, "シーン")),
-          loop = tonumber(obj.getvalue(obj.layer, script_name, "ループ再生")),
-        }
+        return script_name,
+          {
+            scenenumber = tonumber(obj.getvalue(obj.layer, script_name, "シーン")),
+            loop = tonumber(obj.getvalue(obj.layer, script_name, "ループ再生")),
+          }
       elseif script_name == "カメラ制御" then
         return script_name, {
-          zbuffer = 1
+          zbuffer = 1,
         }
-      elseif script_name == "直前オブジェクト" or script_name == "フィルタオブジェクト" or script_name == "グループ制御" then
+      elseif
+        script_name == "直前オブジェクト"
+        or script_name == "フィルタオブジェクト"
+        or script_name == "グループ制御"
+      then
         return script_name, {}
       else
         return "カスタムオブジェクト", {}

@@ -4,15 +4,19 @@ return function(rikky_module, module)
   local clamp = common.clamp
 
   local function rgb_color(r, g, b)
-    return RGB(math.floor(clamp(r, 0, 255) + 0.5), math.floor(clamp(g, 0, 255) + 0.5), math.floor(clamp(b, 0, 255) + 0.5))
+    return RGB(
+      math.floor(clamp(r, 0, 255) + 0.5),
+      math.floor(clamp(g, 0, 255) + 0.5),
+      math.floor(clamp(b, 0, 255) + 0.5)
+    )
   end
 
   local function rgb_to_xyz(r, g, b)
     -- 旧版はRGB成分を線形値として扱い、ガンマ補正を行わない。
     r, g, b = r / 255 * 100, g / 255 * 100, b / 255 * 100
     return 0.412391 * r + 0.357584 * g + 0.180481 * b,
-        0.212639 * r + 0.715169 * g + 0.072192 * b,
-        0.019331 * r + 0.119195 * g + 0.950532 * b
+      0.212639 * r + 0.715169 * g + 0.072192 * b,
+      0.019331 * r + 0.119195 * g + 0.950532 * b
   end
 
   local function xyz_color(x, y, z)
@@ -64,8 +68,8 @@ return function(rikky_module, module)
         r, g, blue = r / 255, g / 255, blue / 255
         local y = 0.299 * r + 0.587 * g + 0.114 * blue
         return math.floor(y * 4096 + 0.5),
-            math.floor((blue - y) / 1.772 * 4096 + 0.5),
-            math.floor((r - y) / 1.402 * 4096 + 0.5)
+          math.floor((blue - y) / 1.772 * 4096 + 0.5),
+          math.floor((r - y) / 1.402 * 4096 + 0.5)
       elseif mode == "xyz" then
         return rgb_to_xyz(r, g, blue)
       elseif mode == "lab" then

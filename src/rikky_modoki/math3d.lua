@@ -33,8 +33,8 @@ local function multiply_matrix(a, b)
   for row = 0, 2 do
     for column = 1, 3 do
       result[row * 3 + column] = a[row * 3 + 1] * b[column]
-          + a[row * 3 + 2] * b[column + 3]
-          + a[row * 3 + 3] * b[column + 6]
+        + a[row * 3 + 2] * b[column + 3]
+        + a[row * 3 + 3] * b[column + 6]
     end
   end
   return result

@@ -1,7 +1,21 @@
 return function(rikky_module, module)
   local effect_stack = {}
   local obj_fields = {
-    "ox", "oy", "oz", "cx", "cy", "cz", "rx", "ry", "rz", "sx", "sy", "sz", "alpha", "zoom", "aspect"
+    "ox",
+    "oy",
+    "oz",
+    "cx",
+    "cy",
+    "cz",
+    "rx",
+    "ry",
+    "rz",
+    "sx",
+    "sy",
+    "sz",
+    "alpha",
+    "zoom",
+    "aspect",
   }
   local function create_obj_table()
     local obj_table = {}

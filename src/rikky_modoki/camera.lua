@@ -28,26 +28,27 @@ return function(rikky_module, module)
       return values[index]
     end
     local function transform(m, x, y, z)
-      return m[1] * x + m[2] * y + m[3] * z,
-          m[4] * x + m[5] * y + m[6] * z,
-          m[7] * x + m[8] * y + m[9] * z
+      return m[1] * x + m[2] * y + m[3] * z, m[4] * x + m[5] * y + m[6] * z, m[7] * x + m[8] * y + m[9] * z
     end
 
     local camera = obj.getoption("camera_param")
     local ex, ey, ez = unit_vector(camera.tx - camera.x, camera.ty - camera.y, camera.tz - camera.z)
-    local nx, ny, nz = unit_vector(
-      ey * camera.uz - ez * camera.uy,
-      ez * camera.ux - ex * camera.uz,
-      ex * camera.uy - ey * camera.ux
-    )
+    local nx, ny, nz =
+      unit_vector(ey * camera.uz - ez * camera.uy, ez * camera.ux - ex * camera.uz, ex * camera.uy - ey * camera.ux)
     local ux, uy, uz = ny * ez - nz * ey, nz * ex - nx * ez, nx * ey - ny * ex
     local roll = math.rad(camera.rz)
     local cos_roll, sin_roll = math.cos(roll), math.sin(roll)
     local group = rikky_module.getinfo("group")
     local group_matrix = {
-      group.Xx, group.Yx, group.Zx,
-      group.Xy, group.Yy, group.Zy,
-      group.Xz, group.Yz, group.Zz,
+      group.Xx,
+      group.Yx,
+      group.Zx,
+      group.Xy,
+      group.Yy,
+      group.Zy,
+      group.Xz,
+      group.Yz,
+      group.Zz,
     }
     local x, y, z, rx, ry, rz, zoom
     local ax, ay, az, mx, my, mz = 1, 0, 0, 0, 0, -1
@@ -68,8 +69,12 @@ return function(rikky_module, module)
       end
       -- 頂点を重ねて指定する三角形にも対応する。
       local edge = 4
-      while edge <= 10 and values[edge] == values[1]
-        and values[edge + 1] == values[2] and values[edge + 2] == values[3] do
+      while
+        edge <= 10
+        and values[edge] == values[1]
+        and values[edge + 1] == values[2]
+        and values[edge + 2] == values[3]
+      do
         edge = edge + 3
       end
       assert(edge <= 7, "Polygon must have at least three distinct vertices")
@@ -89,8 +94,7 @@ return function(rikky_module, module)
     end
     local rotation = multiply_matrix(
       rotation_matrix(1, 0, 0, math.rad(obj.rx + rx)),
-      multiply_matrix(rotation_matrix(0, 1, 0, math.rad(obj.ry + ry)),
-        rotation_matrix(0, 0, 1, math.rad(obj.rz + rz)))
+      multiply_matrix(rotation_matrix(0, 1, 0, math.rad(obj.ry + ry)), rotation_matrix(0, 0, 1, math.rad(obj.rz + rz)))
     )
     local billboard = obj.getoption("billboard")
     local use_billboard = billboard ~= 0 and obj.getoption("camera_mode") ~= 0
@@ -105,9 +109,15 @@ return function(rikky_module, module)
       else
         -- カメラの右・下・前をオブジェクトの基底にする。
         basis = {
-          nx * cos_roll + ux * sin_roll, nx * sin_roll - ux * cos_roll, ex,
-          ny * cos_roll + uy * sin_roll, ny * sin_roll - uy * cos_roll, ey,
-          nz * cos_roll + uz * sin_roll, nz * sin_roll - uz * cos_roll, ez,
+          nx * cos_roll + ux * sin_roll,
+          nx * sin_roll - ux * cos_roll,
+          ex,
+          ny * cos_roll + uy * sin_roll,
+          ny * sin_roll - uy * cos_roll,
+          ey,
+          nz * cos_roll + uz * sin_roll,
+          nz * sin_roll - uz * cos_roll,
+          ez,
         }
       end
       rotation = multiply_matrix(basis, rotation)
@@ -118,9 +128,15 @@ return function(rikky_module, module)
     if use_billboard then
       -- 基準位置にはグループ回転を適用するが、カメラ基準の面には重ねて適用しない。
       x, y, z = transform({
-        group.Xx, group.Xy, group.Xz,
-        group.Yx, group.Yy, group.Yz,
-        group.Zx, group.Zy, group.Zz,
+        group.Xx,
+        group.Xy,
+        group.Xz,
+        group.Yx,
+        group.Yy,
+        group.Yz,
+        group.Zx,
+        group.Zy,
+        group.Zz,
       }, x, y, z)
     end
     x, y, z = x + obj.x + obj.ox, y + obj.y + obj.oy, z + obj.z + obj.oz
