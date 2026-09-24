@@ -56,5 +56,6 @@ float4 rikky_glass(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target {
     uint width, height;
     background.GetDimensions(width, height);
     float3 rgb = background.Sample(backgroundSampler, xy / float2(width, height) + 0.5).rgb;
-    return float4(rgb * extra[0].rgb, alpha);
+    // AviUtl2 buffers use premultiplied alpha, including fully transparent pixels.
+    return float4(rgb * extra[0].rgb * alpha, alpha);
 }
