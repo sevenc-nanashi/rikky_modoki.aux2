@@ -81,7 +81,7 @@ return function(rikky_module, module)
       if radians == 0 then
         angle = math.rad(angle)
       end
-      local x, y, z = finite_number(axes[i]), finite_number(axes[i + 1]), finite_number(axes[i + 2])
+      local x, y, z = axes[i], axes[i + 1], axes[i + 2]
       local rotation = rotation_matrix(x, y, z, angle)
       if moving == 1 then
         axes[i] = matrix[1] * x + matrix[2] * y + matrix[3] * z
@@ -98,17 +98,17 @@ return function(rikky_module, module)
   function rikky_module.axisconvert(axes, radians)
     assert(type(axes) == "table", "Expected an axis table")
     return rikky_module.axisconvertEx({
-      finite_number(axes.Zx),
-      finite_number(axes.Zy),
-      finite_number(axes.Zz),
+      axes.Zx,
+      axes.Zy,
+      axes.Zz,
       finite_number(axes.rz),
-      finite_number(axes.Yx),
-      finite_number(axes.Yy),
-      finite_number(axes.Yz),
+      axes.Yx,
+      axes.Yy,
+      axes.Yz,
       finite_number(axes.ry),
-      finite_number(axes.Xx),
-      finite_number(axes.Xy),
-      finite_number(axes.Xz),
+      axes.Xx,
+      axes.Xy,
+      axes.Xz,
       finite_number(axes.rx),
       Xx = axes.Xx,
       Xy = axes.Xy,

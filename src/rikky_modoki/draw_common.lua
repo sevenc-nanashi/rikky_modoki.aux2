@@ -38,10 +38,9 @@ return function(module)
     local values = {}
     for _, value in ipairs(geometry) do values[#values + 1] = value end
     for _, value in ipairs(extra) do
-      assert(math.abs(finite_number(value)) <= 3.402823466e38, "Drawing constant exceeds GPU float range")
+      assert(math.abs(value) <= 3.402823466e38, "Drawing constant exceeds GPU float range")
       values[#values + 1] = value
     end
-    assert(#values <= 108, "Too many drawing shader constants")
     for i = #values + 1, 108 do values[i] = 0 end
     return values
   end

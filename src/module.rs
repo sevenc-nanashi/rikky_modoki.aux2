@@ -8,7 +8,7 @@ static PARAMETER_REPLACE_NOTIFIED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 // 置換ルールを変更したときに増やす。プラグインのバージョンとは独立。
-const REPLACEMENT_VERSION: u32 = 2;
+const REPLACEMENT_VERSION: u32 = 3;
 
 #[aviutl2::plugin(ScriptModule)]
 pub struct RikkyModokiMod2;
@@ -1087,7 +1087,11 @@ fn replacement_version(content: &str) -> anyhow::Result<Option<u32>> {
 
 fn read_script(path: &std::path::Path) -> anyhow::Result<String> {
     let bytes = std::fs::read(path)?;
-    let (content, _, errors) = encoding_rs::SHIFT_JIS.decode(&bytes);
+    decode_script(&bytes, path)
+}
+
+fn decode_script(bytes: &[u8], path: &std::path::Path) -> anyhow::Result<String> {
+    let (content, _, errors) = encoding_rs::SHIFT_JIS.decode(bytes);
     anyhow::ensure!(
         !errors,
         "Script contains invalid Shift-JIS: {}",
@@ -1097,21 +1101,85 @@ fn read_script(path: &std::path::Path) -> anyhow::Result<String> {
 }
 
 fn read_script_for_replacement(path: &std::path::Path) -> anyhow::Result<String> {
-    let content = read_script(path)?;
-    if replacement_version(&content)?.is_some_and(|version| version < REPLACEMENT_VERSION) {
-        let backup = path.with_added_extension("bak");
-        let restored = read_script(&backup).map_err(|error| {
-            anyhow::anyhow!(
-                "古い置換済みスクリプトを復元できません: {}: {error}",
-                backup.display()
-            )
-        })?;
+    read_script_for_replacement_in(path, &backup_directory()?)
+}
+
+fn backup_directory() -> anyhow::Result<std::path::PathBuf> {
+    let path = process_path::get_dylib_path()
+        .ok_or_else(|| anyhow::anyhow!("Failed to get plugin DLL path"))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Plugin DLL has no parent directory"))?;
+    Ok(parent.join("backups"))
+}
+
+fn original_hash(content: &str) -> anyhow::Result<Option<String>> {
+    let mut markers =
+        regex!(r"(?m)^--rikky_modoki:original_hash=([^\r\n]*)\r?$").captures_iter(content);
+    let Some(marker) = markers.next() else {
+        return Ok(None);
+    };
+    anyhow::ensure!(markers.next().is_none(), "Duplicate original hash markers");
+    let hash = &marker[1];
+    anyhow::ensure!(
+        regex!(r"^[0-9a-f]{16}$").is_match(hash),
+        "Invalid original hash: {hash}"
+    );
+    Ok(Some(hash.to_owned()))
+}
+
+fn script_hash(bytes: &[u8]) -> String {
+    format!("{:016x}", xxhash_rust::xxh3::xxh3_64(bytes))
+}
+
+fn original_script_bytes(
+    path: &std::path::Path,
+    content: &str,
+    backups: &std::path::Path,
+) -> anyhow::Result<Vec<u8>> {
+    let hash = original_hash(content)?;
+    let version = replacement_version(content)?;
+    if hash.is_none() && version.is_none() {
+        return Ok(std::fs::read(path)?);
+    }
+    let backup = if let Some(hash) = &hash {
+        backups.join(format!("{hash}.bak"))
+    } else {
+        // original_hash導入前の形式のみ、スクリプト横のbakから移行する。
+        anyhow::ensure!(version.is_some_and(|v| v < 3), "Missing original hash");
+        path.with_added_extension("bak")
+    };
+    let bytes = std::fs::read(&backup).map_err(|error| {
+        anyhow::anyhow!(
+            "元のスクリプトを復元できません: {}: {error}",
+            backup.display()
+        )
+    })?;
+    if let Some(hash) = hash {
         anyhow::ensure!(
-            replacement_version(&restored)?.is_none(),
-            "バックアップが置換済みです。元のスクリプトが必要です: {}",
+            script_hash(&bytes) == hash,
+            "Backup hash mismatch: {}",
             backup.display()
         );
-        tracing::info!("バックアップから再置換します: {}", backup.display());
+    }
+    let restored = decode_script(&bytes, &backup)?;
+    anyhow::ensure!(
+        replacement_version(&restored)?.is_none() && original_hash(&restored)?.is_none(),
+        "バックアップが置換済みです。元のスクリプトが必要です: {}",
+        backup.display()
+    );
+    Ok(bytes)
+}
+
+fn read_script_for_replacement_in(
+    path: &std::path::Path,
+    backups: &std::path::Path,
+) -> anyhow::Result<String> {
+    let content = read_script(path)?;
+    if replacement_version(&content)?.is_some_and(|version| version < REPLACEMENT_VERSION) {
+        let bytes = original_script_bytes(path, &content, backups)?;
+        let restored = decode_script(&bytes, path)?;
+        tracing::info!("バックアップから再置換します: {}", path.display());
         // 再置換が成功するまでは元ファイルもバックアップも変更しない。
         Ok(restored)
     } else {
@@ -1160,17 +1228,53 @@ fn write_replaced_script(
     script_path: &std::path::Path,
     script_content: &str,
 ) -> anyhow::Result<()> {
-    let content = versioned_script(script_content)?;
+    write_replaced_script_in(script_path, script_content, &backup_directory()?)
+}
+
+fn write_replaced_script_in(
+    script_path: &std::path::Path,
+    script_content: &str,
+    backups: &std::path::Path,
+) -> anyhow::Result<()> {
+    use std::io::Write;
+    let original = original_script_bytes(script_path, &read_script(script_path)?, backups)?;
+    let hash = script_hash(&original);
+    let mut content = versioned_script(script_content)?;
+    if let Some(existing) = original_hash(&content)? {
+        anyhow::ensure!(existing == hash, "Original hash changed during replacement");
+    } else {
+        let newline = if content.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        content = format!("--rikky_modoki:original_hash={hash}{newline}{content}");
+    }
     let (encoded, _, errors) = encoding_rs::SHIFT_JIS.encode(&content);
     anyhow::ensure!(!errors, "Script cannot be encoded as Shift-JIS");
     tracing::info!(
         "Writing modified script content back to file: {:?}",
         &script_path
     );
-    let bak_path = script_path.with_added_extension("bak");
-    if !bak_path.exists() {
-        std::fs::copy(script_path, &bak_path)
-            .map_err(|e| anyhow::anyhow!("Failed to create backup file {:?}: {}", bak_path, e))?;
+    std::fs::create_dir_all(backups)?;
+    let bak_path = backups.join(format!("{hash}.bak"));
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&bak_path)
+    {
+        Ok(mut file) => {
+            file.write_all(&original)?;
+            file.sync_all()?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            anyhow::ensure!(
+                std::fs::read(&bak_path)? == original,
+                "Backup contents differ: {}",
+                bak_path.display()
+            );
+        }
+        Err(error) => return Err(error.into()),
     }
     std::fs::write(script_path, encoded)?;
     Ok(())
@@ -1238,20 +1342,28 @@ mod tests {
     #[test]
     fn replacement_versions_restore_originals_without_overwriting_backups() -> anyhow::Result<()> {
         use super::{
-            REPLACEMENT_VERSION, group_needs_rewrite, read_script, read_script_for_replacement,
-            replacement_version, versioned_script, write_replaced_script,
+            REPLACEMENT_VERSION, group_needs_rewrite, read_script, read_script_for_replacement_in,
+            replacement_version, script_hash, versioned_script, write_replaced_script_in,
         };
         let directory =
             std::env::temp_dir().join(format!("__gi_replacement_{}", std::process::id()));
         std::fs::create_dir_all(&directory)?;
+        let backups = directory.join("backups");
+        let read_script_for_replacement =
+            |path: &std::path::Path| read_script_for_replacement_in(path, &backups);
+        let write_replaced_script = |path: &std::path::Path, content: &str| {
+            write_replaced_script_in(path, content, &backups)
+        };
         let entries: Vec<String> = ["数値", "0", "-100", "100"].map(str::to_owned).into();
         for (index, newline) in ["\n", "\r\n"].into_iter().enumerate() {
             let path = directory.join(format!("@version{index}.anm"));
-            let backup = path.with_added_extension("bak");
+            let legacy_backup = path.with_added_extension("bak");
             let original = format!(
                 "@一{newline}--dialog:設定,val=\"\"{newline}obj.draw(){newline}@二{newline}--dialog:設定,val=\"\"{newline}obj.draw(){newline}"
             );
             let original_bytes = encoding_rs::SHIFT_JIS.encode(&original).0.into_owned();
+            let hash = script_hash(&original_bytes);
+            let backup = backups.join(format!("{hash}.bak"));
             std::fs::write(&path, &original_bytes)?;
             assert_eq!(replacement_version(&original)?, None);
             assert_eq!(read_script_for_replacement(&path)?, original);
@@ -1263,8 +1375,9 @@ mod tests {
             write_replaced_script(&path, &transformed)?;
             let current = read_script(&path)?;
             assert!(current.starts_with(&format!(
-                "--rikky_modoki:replacement_version={REPLACEMENT_VERSION}{newline}"
+                "--rikky_modoki:original_hash={hash}{newline}--rikky_modoki:replacement_version={REPLACEMENT_VERSION}{newline}"
             )));
+            assert!(!legacy_backup.exists());
             assert_eq!(versioned_script(&current)?, current);
             assert_eq!(std::fs::read(&backup)?, original_bytes);
             assert_eq!(read_script_for_replacement(&path)?, current);
@@ -1275,10 +1388,15 @@ mod tests {
             }
 
             // 明示的な旧バージョンと、バージョン導入前の変換結果の両方。
+            std::fs::write(&legacy_backup, &original_bytes)?;
             for old in [
                 transformed.clone(),
                 format!("--rikky_modoki:replacement_version=0{newline}{transformed}"),
                 format!("--rikky_modoki:replacement_version=1{newline}{transformed}"),
+                format!("--rikky_modoki:replacement_version=2{newline}{transformed}"),
+                format!(
+                    "--rikky_modoki:original_hash={hash}{newline}--rikky_modoki:replacement_version=2{newline}{transformed}"
+                ),
             ] {
                 let old_bytes = encoding_rs::SHIFT_JIS.encode(&old).0.into_owned();
                 std::fs::write(&path, &old_bytes)?;
@@ -1312,23 +1430,63 @@ mod tests {
             assert_eq!(read_script_for_replacement(&path)?, future);
             assert_eq!(versioned_script(&future)?, future);
 
-            std::fs::write(&path, encoding_rs::SHIFT_JIS.encode(&transformed).0)?;
+            // ファイル名が変わってもハッシュで元のバックアップを参照する。
+            let renamed = directory.join("renamed.anm");
+            let stale = current.replacen(
+                &format!("replacement_version={REPLACEMENT_VERSION}"),
+                "replacement_version=2",
+                1,
+            );
+            std::fs::write(&renamed, encoding_rs::SHIFT_JIS.encode(&stale).0)?;
+            assert_eq!(read_script_for_replacement(&renamed)?, original);
+            write_replaced_script(&renamed, &transformed)?;
+            assert_eq!(read_script(&renamed)?, current);
+            assert_eq!(std::fs::read_dir(&backups)?.count(), 1);
+
+            // ハッシュ不一致時は復元も上書きも行わない。
+            std::fs::write(&backup, b"corrupted")?;
+            assert!(write_replaced_script(&renamed, &transformed).is_err());
+            assert_eq!(read_script(&renamed)?, current);
+            std::fs::write(&renamed, encoding_rs::SHIFT_JIS.encode(&stale).0)?;
+            assert!(read_script_for_replacement(&renamed).is_err());
+            assert_eq!(read_script(&renamed)?, stale);
             std::fs::remove_file(&backup)?;
+            assert!(read_script_for_replacement(&renamed).is_err());
+            std::fs::write(&backup, &original_bytes)?;
+            std::fs::remove_file(renamed)?;
+
+            std::fs::write(&path, encoding_rs::SHIFT_JIS.encode(&transformed).0)?;
+            std::fs::remove_file(&legacy_backup)?;
             assert!(read_script_for_replacement(&path).is_err());
             assert_eq!(read_script(&path)?, transformed);
-            std::fs::write(&backup, encoding_rs::SHIFT_JIS.encode(&transformed).0)?;
+            std::fs::write(
+                &legacy_backup,
+                encoding_rs::SHIFT_JIS.encode(&transformed).0,
+            )?;
             assert!(read_script_for_replacement(&path).is_err()); // 変換済みのbakも拒否。
             assert_eq!(read_script(&path)?, transformed);
             std::fs::remove_file(&path)?;
             std::fs::remove_file(&backup)?;
+            std::fs::remove_file(&legacy_backup)?;
         }
         assert!(replacement_version("--rikky_modoki:replacement_version=invalid\n").is_err());
+        for hash in [
+            "../original",
+            "",
+            "xyz",
+            "0123456789abcdef\n--rikky_modoki:original_hash=0123456789abcdef",
+        ] {
+            assert!(
+                super::original_hash(&format!("--rikky_modoki:original_hash={hash}\n")).is_err()
+            );
+        }
         assert!(
             replacement_version(
                 "--rikky_modoki:replacement_version=1\n--rikky_modoki:replacement_version=1\n"
             )
             .is_err()
         );
+        std::fs::remove_dir(backups)?;
         std::fs::remove_dir(directory)?;
         Ok(())
     }

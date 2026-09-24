@@ -100,7 +100,7 @@ destination = "Script/@rikky_modoki.aux2.obj2"
 build = "aulua build"
 
 [artifacts.rikky_modoki-aux2]
-destination = "Plugin/rikky_modoki.aux2"
+destination = "Plugin/rikky_modoki/rikky_modoki.aux2"
 
 [artifacts.rikky_modoki-aux2.profiles.debug]
 source = "target/debug/rikky_modoki_aux2.dll"
