@@ -246,6 +246,19 @@ impl RikkyModokiMod2 {
         anyhow::Ok(name)
     }
 
+    fn text_of(
+        &self,
+        layer: usize,
+        frame: usize,
+        read: &aviutl2::generic::ReadSection,
+    ) -> aviutl2::common::AnyResult<String> {
+        let object = read.find_object_after(layer - 1, frame)?.ok_or_else(|| {
+            anyhow::anyhow!("No object found at layer {} and frame {}", layer, frame)
+        })?;
+        let text = read.get_object_effect_item(object, "テキスト", 0, "テキスト")?;
+        Ok(text)
+    }
+
     fn hwnd(&self) -> aviutl2::common::AnyResult<isize> {
         Ok(crate::EDIT_HANDLE
             .get_host_app_window_raw()

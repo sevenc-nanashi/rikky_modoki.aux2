@@ -187,7 +187,7 @@ return function(rikky_module, module)
       if option == nil then
         -- obj.load("text")のテキストも返すらしいが、一旦パス...
         -- フックしてあげればできそうではあるが面倒
-        return obj.getvalue("テキスト", "テキスト")
+        return obj.getvalue(obj.layer, "テキスト", "テキスト")
       else
         return obj.getvalue(option, "テキスト", "テキスト")
       end
