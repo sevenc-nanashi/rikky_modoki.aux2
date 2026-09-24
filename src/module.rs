@@ -7,6 +7,9 @@ pub static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUs
 static PARAMETER_REPLACE_NOTIFIED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+// 置換ルールを変更したときに増やす。プラグインのバージョンとは独立。
+const REPLACEMENT_VERSION: u32 = 2;
+
 #[aviutl2::plugin(ScriptModule)]
 pub struct RikkyModokiMod2;
 
@@ -420,10 +423,7 @@ impl RikkyModokiMod2 {
     ) -> aviutl2::common::AnyResult<()> {
         replace_parameter_with_done_check(&script_name, &extension, index, || {
             let script_file_path = find_script_file(&script_name, &extension)?;
-            let mut content = encoding_rs::SHIFT_JIS
-                .decode(&std::fs::read(&script_file_path)?)
-                .0
-                .into_owned();
+            let mut content = read_script_for_replacement(&script_file_path)?;
             let range = script_section(&content, &script_name)?;
             let mut script_content = content[range.clone()].to_owned();
             let dialog_info = expand_dialog(&mut script_content)?;
@@ -443,6 +443,11 @@ impl RikkyModokiMod2 {
                         "Parameter '{}' has already been replaced in the script content",
                         name
                     );
+                    // --dialogの展開で/col等が既に目的の種類になっていても保存する。
+                    if content[range.clone()] != script_content {
+                        content.replace_range(range, &script_content);
+                        update_script_file(&script_file_path, &content)?;
+                    }
                     return Ok(());
                 }
                 return Err(anyhow::anyhow!(
@@ -467,10 +472,7 @@ impl RikkyModokiMod2 {
     ) -> aviutl2::common::AnyResult<()> {
         replace_parameter_with_done_check(&script_name, &extension, index, || {
             let script_file_path = find_script_file(&script_name, &extension)?;
-            let mut content = encoding_rs::SHIFT_JIS
-                .decode(&std::fs::read(&script_file_path)?)
-                .0
-                .into_owned();
+            let mut content = read_script_for_replacement(&script_file_path)?;
             let range = script_section(&content, &script_name)?;
             let mut script_content = content[range.clone()].to_owned();
             let dialog_info = expand_dialog(&mut script_content)?;
@@ -507,11 +509,33 @@ impl RikkyModokiMod2 {
                 ));
             };
 
+            let wants_numeric_value = label.starts_with("*");
+            let default_int = if wants_numeric_value {
+                default.parse::<usize>().ok()
+            } else {
+                let default = unescape_string(&default);
+                choices
+                    .iter()
+                    .position(|choice| choice == &default)
+                    .map(|i| i + 1)
+            };
+            let default_int = match default_int {
+                Some(value) => value,
+                None => {
+                    tracing::warn!(
+                        "Default value '{}' not found in choices for parameter '{}'",
+                        default,
+                        name
+                    );
+                    1
+                }
+            };
+
             let select_line = format!(
                 "--select@tmp_{}:{}={},{}",
                 name,
                 label,
-                unescape_string(&default),
+                default_int,
                 choices
                     .iter()
                     .enumerate()
@@ -557,15 +581,36 @@ impl RikkyModokiMod2 {
     ) -> aviutl2::common::AnyResult<()> {
         replace_parameter_with_done_check(&script_name, &extension, index, || {
             let path = find_script_file(&script_name, &extension)?;
-            let bytes = std::fs::read(&path)?;
-            let (content, _, errors) = encoding_rs::SHIFT_JIS.decode(&bytes);
-            anyhow::ensure!(!errors, "Script contains invalid Shift-JIS");
-            let mut content = content.into_owned();
+            let mut content = read_script_for_replacement(&path)?;
             if expand_parameter_group(&mut content, &script_name, index, &entries)? {
                 update_script_file(&path, &content)?;
             }
             Ok(())
         })
+    }
+
+    fn group_parameter_needs_rewrite(
+        &self,
+        script_name: String,
+        extension: String,
+        index: usize,
+    ) -> aviutl2::common::AnyResult<bool> {
+        let request = ParamReplaceRequest {
+            script_name,
+            extension,
+            index,
+        };
+        let mut replaced = REPLACED_PARAMETERS.lock().unwrap();
+        if replaced.contains(&request) {
+            return Ok(false);
+        }
+        let path = find_script_file(&request.script_name, &request.extension)?;
+        let content = read_script(&path)?;
+        if group_needs_rewrite(&content, &request.script_name, index)? {
+            return Ok(true);
+        }
+        replaced.insert(request);
+        Ok(false)
     }
 }
 
@@ -940,7 +985,7 @@ fn expand_dialog(script_content: &mut String) -> anyhow::Result<Vec<String>> {
         } else {
             ("value", label)
         };
-        values.push(format!("--{kind}@{name}:{label},{value}"));
+        values.push((kind, name, label.to_owned(), value));
         if end == remaining.len() {
             break;
         }
@@ -948,6 +993,17 @@ fn expand_dialog(script_content: &mut String) -> anyhow::Result<Vec<String>> {
     }
     anyhow::ensure!(!names.is_empty(), "--dialog declaration is empty");
     anyhow::ensure!(names.len() <= 16, "--dialog supports at most 16 items");
+
+    let mut labels = std::collections::HashSet::new();
+    for (_, _, label, _) in values.iter_mut().rev() {
+        while !labels.insert(label.clone()) {
+            label.insert_str(0, "dialog::");
+        }
+    }
+    let values = values
+        .into_iter()
+        .map(|(kind, name, label, value)| format!("--{kind}@{name}:{label},{value}"))
+        .collect::<Vec<_>>();
 
     let newline = if script_content.contains("\r\n") {
         "\r\n"
@@ -1010,8 +1066,102 @@ fn dialog_value_end(value: &str) -> anyhow::Result<usize> {
     Ok(value.len())
 }
 
-fn update_script_file(script_path: &std::path::Path, script_content: &str) -> anyhow::Result<()> {
-    let (encoded, _, errors) = encoding_rs::SHIFT_JIS.encode(script_content);
+fn replacement_version(content: &str) -> anyhow::Result<Option<u32>> {
+    let mut versions =
+        regex!(r"(?m)^--rikky_modoki:replacement_version=([^\r\n]*)\r?$").captures_iter(content);
+    if let Some(version) = versions.next() {
+        let version = version[1].parse::<u32>()?;
+        anyhow::ensure!(
+            versions.next().is_none(),
+            "Duplicate replacement version markers"
+        );
+        return Ok(Some(version));
+    }
+    // バージョン導入前に生成したファイルだけを0として扱う。
+    if regex!(r"(?m)^--rikky_modoki:(?:dialog_info|parameter)=").is_match(content) {
+        Ok(Some(0))
+    } else {
+        Ok(None)
+    }
+}
+
+fn read_script(path: &std::path::Path) -> anyhow::Result<String> {
+    let bytes = std::fs::read(path)?;
+    let (content, _, errors) = encoding_rs::SHIFT_JIS.decode(&bytes);
+    anyhow::ensure!(
+        !errors,
+        "Script contains invalid Shift-JIS: {}",
+        path.display()
+    );
+    Ok(content.into_owned())
+}
+
+fn read_script_for_replacement(path: &std::path::Path) -> anyhow::Result<String> {
+    let content = read_script(path)?;
+    if replacement_version(&content)?.is_some_and(|version| version < REPLACEMENT_VERSION) {
+        let backup = path.with_added_extension("bak");
+        let restored = read_script(&backup).map_err(|error| {
+            anyhow::anyhow!(
+                "古い置換済みスクリプトを復元できません: {}: {error}",
+                backup.display()
+            )
+        })?;
+        anyhow::ensure!(
+            replacement_version(&restored)?.is_none(),
+            "バックアップが置換済みです。元のスクリプトが必要です: {}",
+            backup.display()
+        );
+        tracing::info!("バックアップから再置換します: {}", backup.display());
+        // 再置換が成功するまでは元ファイルもバックアップも変更しない。
+        Ok(restored)
+    } else {
+        Ok(content)
+    }
+}
+
+fn group_needs_rewrite(content: &str, script_name: &str, index: usize) -> anyhow::Result<bool> {
+    match replacement_version(content)? {
+        Some(version) if version < REPLACEMENT_VERSION => return Ok(true),
+        None => return Ok(false),
+        _ => {}
+    }
+    let range = script_section(content, script_name)?;
+    let mut section = content[range].to_owned();
+    let names = expand_dialog(&mut section)?;
+    let name = names
+        .get(index.wrapping_sub(1))
+        .ok_or_else(|| anyhow::anyhow!("Invalid dialog parameter index: {index}"))?;
+    Ok(!section
+        .lines()
+        .any(|line| line == format!("--rikky_modoki:parameter={name}")))
+}
+
+fn versioned_script(content: &str) -> anyhow::Result<String> {
+    if let Some(version) = replacement_version(content)?
+        && version >= REPLACEMENT_VERSION
+    {
+        return Ok(content.to_owned());
+    }
+    anyhow::ensure!(
+        !regex!(r"(?m)^--rikky_modoki:replacement_version=").is_match(content),
+        "Old replacement version must be restored before writing"
+    );
+    let newline = if content.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    Ok(format!(
+        "--rikky_modoki:replacement_version={REPLACEMENT_VERSION}{newline}{content}"
+    ))
+}
+
+fn write_replaced_script(
+    script_path: &std::path::Path,
+    script_content: &str,
+) -> anyhow::Result<()> {
+    let content = versioned_script(script_content)?;
+    let (encoded, _, errors) = encoding_rs::SHIFT_JIS.encode(&content);
     anyhow::ensure!(!errors, "Script cannot be encoded as Shift-JIS");
     tracing::info!(
         "Writing modified script content back to file: {:?}",
@@ -1023,7 +1173,11 @@ fn update_script_file(script_path: &std::path::Path, script_content: &str) -> an
             .map_err(|e| anyhow::anyhow!("Failed to create backup file {:?}: {}", bak_path, e))?;
     }
     std::fs::write(script_path, encoded)?;
+    Ok(())
+}
 
+fn update_script_file(script_path: &std::path::Path, script_content: &str) -> anyhow::Result<()> {
+    write_replaced_script(script_path, script_content)?;
     if !PARAMETER_REPLACE_NOTIFIED.swap(true, std::sync::atomic::Ordering::SeqCst) {
         native_dialog::DialogBuilder::message()
             .set_title("rikky_modoki")
@@ -1071,13 +1225,134 @@ where
         return Ok(R::default());
     }
     let result = f();
-    replaced.insert(request);
+    if result.is_ok() {
+        replaced.insert(request);
+    }
     result
 }
 
 #[cfg(test)]
 mod tests {
     use super::{expand_dialog, expand_parameter_group};
+
+    #[test]
+    fn replacement_versions_restore_originals_without_overwriting_backups() -> anyhow::Result<()> {
+        use super::{
+            REPLACEMENT_VERSION, group_needs_rewrite, read_script, read_script_for_replacement,
+            replacement_version, versioned_script, write_replaced_script,
+        };
+        let directory =
+            std::env::temp_dir().join(format!("__gi_replacement_{}", std::process::id()));
+        std::fs::create_dir_all(&directory)?;
+        let entries: Vec<String> = ["数値", "0", "-100", "100"].map(str::to_owned).into();
+        for (index, newline) in ["\n", "\r\n"].into_iter().enumerate() {
+            let path = directory.join(format!("@version{index}.anm"));
+            let backup = path.with_added_extension("bak");
+            let original = format!(
+                "@一{newline}--dialog:設定,val=\"\"{newline}obj.draw(){newline}@二{newline}--dialog:設定,val=\"\"{newline}obj.draw(){newline}"
+            );
+            let original_bytes = encoding_rs::SHIFT_JIS.encode(&original).0.into_owned();
+            std::fs::write(&path, &original_bytes)?;
+            assert_eq!(replacement_version(&original)?, None);
+            assert_eq!(read_script_for_replacement(&path)?, original);
+            assert!(!group_needs_rewrite(&original, "一@version", 1)?);
+
+            let mut transformed = original.clone();
+            expand_parameter_group(&mut transformed, "一@version", 1, &entries)?;
+            assert_eq!(replacement_version(&transformed)?, Some(0));
+            write_replaced_script(&path, &transformed)?;
+            let current = read_script(&path)?;
+            assert!(current.starts_with(&format!(
+                "--rikky_modoki:replacement_version={REPLACEMENT_VERSION}{newline}"
+            )));
+            assert_eq!(versioned_script(&current)?, current);
+            assert_eq!(std::fs::read(&backup)?, original_bytes);
+            assert_eq!(read_script_for_replacement(&path)?, current);
+            assert!(!group_needs_rewrite(&current, "一@version", 1)?);
+            assert!(group_needs_rewrite(&current, "二@version", 1)?);
+            if newline == "\r\n" {
+                assert!(!current.replace("\r\n", "").contains('\n'));
+            }
+
+            // 明示的な旧バージョンと、バージョン導入前の変換結果の両方。
+            for old in [
+                transformed.clone(),
+                format!("--rikky_modoki:replacement_version=0{newline}{transformed}"),
+                format!("--rikky_modoki:replacement_version=1{newline}{transformed}"),
+            ] {
+                let old_bytes = encoding_rs::SHIFT_JIS.encode(&old).0.into_owned();
+                std::fs::write(&path, &old_bytes)?;
+                assert!(group_needs_rewrite(&old, "一@version", 1)?);
+                let mut restored = read_script_for_replacement(&path)?;
+                assert_eq!(restored, original);
+                assert_eq!(std::fs::read(&path)?, old_bytes); // 成功するまで書き戻さない。
+                expand_parameter_group(&mut restored, "二@version", 1, &entries)?;
+                write_replaced_script(&path, &restored)?;
+                let mut updated = read_script_for_replacement(&path)?;
+                assert_eq!(replacement_version(&updated)?, Some(REPLACEMENT_VERSION));
+                assert!(group_needs_rewrite(&updated, "一@version", 1)?);
+                assert!(!group_needs_rewrite(&updated, "二@version", 1)?);
+                expand_parameter_group(&mut updated, "一@version", 1, &entries)?;
+                write_replaced_script(&path, &updated)?;
+                assert_eq!(read_script_for_replacement(&path)?, updated);
+                assert_eq!(
+                    updated
+                        .matches("--rikky_modoki:replacement_version=")
+                        .count(),
+                    1
+                );
+                assert_eq!(std::fs::read(&backup)?, original_bytes);
+            }
+            let future = current.replacen(
+                &format!("replacement_version={REPLACEMENT_VERSION}"),
+                &format!("replacement_version={}", REPLACEMENT_VERSION + 1),
+                1,
+            );
+            std::fs::write(&path, encoding_rs::SHIFT_JIS.encode(&future).0)?;
+            assert_eq!(read_script_for_replacement(&path)?, future);
+            assert_eq!(versioned_script(&future)?, future);
+
+            std::fs::write(&path, encoding_rs::SHIFT_JIS.encode(&transformed).0)?;
+            std::fs::remove_file(&backup)?;
+            assert!(read_script_for_replacement(&path).is_err());
+            assert_eq!(read_script(&path)?, transformed);
+            std::fs::write(&backup, encoding_rs::SHIFT_JIS.encode(&transformed).0)?;
+            assert!(read_script_for_replacement(&path).is_err()); // 変換済みのbakも拒否。
+            assert_eq!(read_script(&path)?, transformed);
+            std::fs::remove_file(&path)?;
+            std::fs::remove_file(&backup)?;
+        }
+        assert!(replacement_version("--rikky_modoki:replacement_version=invalid\n").is_err());
+        assert!(
+            replacement_version(
+                "--rikky_modoki:replacement_version=1\n--rikky_modoki:replacement_version=1\n"
+            )
+            .is_err()
+        );
+        std::fs::remove_dir(directory)?;
+        Ok(())
+    }
+
+    #[test]
+    fn replacement_failure_can_be_retried() {
+        use super::replace_parameter_with_done_check;
+        let mut calls = 0;
+        let first: anyhow::Result<()> =
+            replace_parameter_with_done_check("__gi_retry", "anm", 1, || {
+                calls += 1;
+                anyhow::bail!("Missing backup")
+            });
+        assert!(first.is_err());
+        for _ in 0..2 {
+            let result: anyhow::Result<()> =
+                replace_parameter_with_done_check("__gi_retry", "anm", 1, || {
+                    calls += 1;
+                    Ok(())
+                });
+            result.unwrap();
+        }
+        assert_eq!(calls, 2);
+    }
 
     #[test]
     fn expands_parameter_groups_without_changing_other_scripts() {
@@ -1217,6 +1492,33 @@ mod tests {
             let original = script.clone();
             assert!(expand_parameter_group(&mut script, name, index, &entries).is_err());
             assert_eq!(script, original);
+        }
+    }
+
+    #[test]
+    fn prefixes_earlier_duplicate_dialog_labels() {
+        for newline in ["\n", "\r\n"] {
+            let mut script = format!(
+                "--dialog:値,first=1;値/chk,second=0;dialog::値/col,third=255;値/fig,last=0;別,other=42{newline}obj.draw()"
+            );
+            let names = ["first", "second", "third", "last", "other"];
+            assert_eq!(expand_dialog(&mut script).unwrap(), names);
+            assert_eq!(
+                script,
+                [
+                    "--rikky_modoki:dialog_info=first;second;third;last;other",
+                    "--value@first:dialog::dialog::dialog::値,1",
+                    "--check@second:dialog::dialog::値,0",
+                    "--color@third:dialog::値,255",
+                    "--figure@last:値,0",
+                    "--value@other:別,42",
+                    "obj.draw()",
+                ]
+                .join(newline)
+            );
+            let rewritten = script.clone();
+            assert_eq!(expand_dialog(&mut script).unwrap(), names);
+            assert_eq!(script, rewritten);
         }
     }
 

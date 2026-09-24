@@ -197,10 +197,11 @@ return function(rikky_module, module)
       "Parameter definitions must contain groups of four values"
     )
     local count = #definition / 4
-    if type(value) == "table" then
+    local generated = type(value) == "table"
+    if generated and not module.group_parameter_needs_rewrite(get_script_name(), extension, index) then
       return unpack(value, 1, count)
     end
-    assert(type(value) == "string", "Parameter value must be a string or a generated value table")
+    assert(generated or type(value) == "string", "Parameter value must be a string or a generated value table")
 
     local entries = {}
     local defaults = {}
@@ -239,6 +240,9 @@ return function(rikky_module, module)
     end
 
     module.rewrite_group_parameter(get_script_name(), extension, index, entries)
+    if generated then
+      return unpack(value, 1, count)
+    end
     return unpack(defaults, 1, count)
   end
 
