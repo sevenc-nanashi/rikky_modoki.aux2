@@ -71,6 +71,12 @@ url_api = "https://api.github.com/repos/karoterra/aviutl2-aulua/releases/assets/
 provenance = "github-attestations"
 provenance_verified = true
 
+[[tools."npm:glob-bin"]]
+version = "1.1.0"
+aube = { path = ".mise/locks/npm-glob-bin/1.1.0", digest = "sha256:d0dc2b93f7912bd4a05265c436ead1d8383b45c711d3e626d4665451a5768ae3" }
+backend = "npm:glob-bin"
+specifiers = ["latest"]
+
 [[tools.stylua]]
 version = "2.5.2"
 backend = "aqua:JohnnyMorganz/StyLua"
