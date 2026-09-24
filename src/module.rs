@@ -8,7 +8,7 @@ static PARAMETER_REPLACE_NOTIFIED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 // 置換ルールを変更したときに増やす。プラグインのバージョンとは独立。
-const REPLACEMENT_VERSION: u32 = 3;
+const REPLACEMENT_VERSION: u32 = 4;
 
 #[aviutl2::plugin(ScriptModule)]
 pub struct RikkyModokiMod2;
@@ -648,7 +648,7 @@ fn expand_parameter_group(
     } else {
         "\n"
     };
-    let mut lines = vec![marker, format!("--group:{label},true")];
+    let mut lines = vec![marker, format!("--group:{label},false")];
     let mut variables = Vec::new();
     for (i, entry) in entries.chunks_exact(4).enumerate() {
         let variable = format!("__rikky_parameter_{name}_{}", i + 1);
@@ -660,15 +660,6 @@ fn expand_parameter_group(
         variables.push(variable);
     }
     lines.push("--group".to_owned());
-    // 既存のグループ内にある項目を展開した場合は、後続項目の所属を戻す。
-    if let Some(group) = section[..parameter_range.start]
-        .lines()
-        .rev()
-        .find(|line| *line == "--group" || line.starts_with("--group:"))
-        .filter(|line| line.starts_with("--group:"))
-    {
-        lines.push(group.to_owned());
-    }
     let assignment = format!("local {name} = {{{}}}{newline}", variables.join(", "));
     section.replace_range(parameter_range, &lines.join(newline));
     let body = script_body_start(&section)?;
@@ -994,12 +985,32 @@ fn expand_dialog(script_content: &mut String) -> anyhow::Result<Vec<String>> {
     anyhow::ensure!(!names.is_empty(), "--dialog declaration is empty");
     anyhow::ensure!(names.len() <= 16, "--dialog supports at most 16 items");
 
+    // AviUtl2のパラメーター重複回避処理の再現。本当にワケのわからない動きをしている...
+    let mut track_names = std::collections::HashSet::new();
+    for capture in lazy_regex::regex_captures_iter!(r"(?m)^--track[0-3]:([^,]+),", script_content) {
+        let name = &capture[1];
+        track_names.insert(name.to_owned());
+    }
+
     let mut labels = std::collections::HashSet::new();
+    let mut labels_counter = std::collections::HashMap::new();
+    for (_, _, label, _) in values.iter_mut() {
+        let counter = labels_counter.entry(label.clone()).or_insert(0);
+        *counter += 1;
+    }
+
     for (_, _, label, _) in values.iter_mut().rev() {
-        while !labels.insert(label.clone()) {
+        if !labels.insert(label.clone()) {
             label.insert_str(0, "dialog::");
+        } else if track_names.contains(label) {
+            if labels_counter[label] > 1 {
+                label.insert_str(0, "dialog::dialog::");
+            } else {
+                label.insert_str(0, "dialog::");
+            }
         }
     }
+
     let values = values
         .into_iter()
         .map(|(kind, name, label, value)| format!("--{kind}@{name}:{label},{value}"))
