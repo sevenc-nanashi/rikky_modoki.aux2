@@ -14,6 +14,9 @@ id = "sevenc-nanashi.rikky_modoki-anm2"
 license_path = "./LICENSE"
 download_repo = { owner = "sevenc-nanashi", repo = "rikky_modoki.aux2" }
 
+[release]
+uninstall_subfolder_file = true
+
 [artifacts.rikky_module]
 source = "src/rikky_module.lua"
 destination = "Script/rikky_module.lua"
