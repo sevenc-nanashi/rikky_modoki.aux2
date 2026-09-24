@@ -8,7 +8,7 @@ static PARAMETER_REPLACE_NOTIFIED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 // 置換ルールを変更したときに増やす。プラグインのバージョンとは独立。
-const REPLACEMENT_VERSION: u32 = 4;
+const REPLACEMENT_VERSION: u32 = 5;
 
 #[aviutl2::plugin(ScriptModule)]
 pub struct RikkyModokiMod2;
@@ -434,9 +434,16 @@ impl RikkyModokiMod2 {
         parameter_type: String,
         index: usize,
     ) -> aviutl2::common::AnyResult<()> {
-        replace_parameter_with_done_check(&script_name, &extension, index, || {
+        replace_parameter_with_check(&script_name, &extension, index, || {
             let script_file_path = find_script_file(&script_name, &extension)?;
             let mut content = read_script_for_replacement(&script_file_path)?;
+            if further_replacement_disabled(&content) {
+                tracing::debug!(
+                    "Further parameter replacement is disabled for script '{}'",
+                    script_name
+                );
+                return Ok(());
+            }
             let range = script_section(&content, &script_name)?;
             let mut script_content = content[range.clone()].to_owned();
             let dialog_info = expand_dialog(&mut script_content)?;
@@ -483,9 +490,16 @@ impl RikkyModokiMod2 {
         index: usize,
         choices: Vec<String>,
     ) -> aviutl2::common::AnyResult<()> {
-        replace_parameter_with_done_check(&script_name, &extension, index, || {
+        replace_parameter_with_check(&script_name, &extension, index, || {
             let script_file_path = find_script_file(&script_name, &extension)?;
             let mut content = read_script_for_replacement(&script_file_path)?;
+            if further_replacement_disabled(&content) {
+                tracing::debug!(
+                    "Further parameter replacement is disabled for script '{}'",
+                    script_name
+                );
+                return Ok(());
+            }
             let range = script_section(&content, &script_name)?;
             let mut script_content = content[range.clone()].to_owned();
             let dialog_info = expand_dialog(&mut script_content)?;
@@ -592,9 +606,16 @@ impl RikkyModokiMod2 {
         index: usize,
         entries: Vec<String>,
     ) -> aviutl2::common::AnyResult<()> {
-        replace_parameter_with_done_check(&script_name, &extension, index, || {
+        replace_parameter_with_check(&script_name, &extension, index, || {
             let path = find_script_file(&script_name, &extension)?;
             let mut content = read_script_for_replacement(&path)?;
+            if further_replacement_disabled(&content) {
+                tracing::debug!(
+                    "Further parameter replacement is disabled for script '{}'",
+                    script_name
+                );
+                return Ok(());
+            }
             if expand_parameter_group(&mut content, &script_name, index, &entries)? {
                 update_script_file(&path, &content)?;
             }
@@ -1264,16 +1285,32 @@ fn write_replaced_script_in(
     let original = original_script_bytes(script_path, &read_script(script_path)?, backups)?;
     let hash = script_hash(&original);
     let mut content = versioned_script(script_content)?;
+
+    let newline = if content.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+
     if let Some(existing) = original_hash(&content)? {
         anyhow::ensure!(existing == hash, "Original hash changed during replacement");
     } else {
-        let newline = if content.contains("\r\n") {
-            "\r\n"
-        } else {
-            "\n"
-        };
         content = format!("--rikky_modoki:original_hash={hash}{newline}{content}");
     }
+
+    static ALERT: &[&str] = &[
+        "このスクリプトはrikky_modoki.aux2によって編集処理が行われました。",
+        "このスクリプトを編集すると、将来のrikky_modoki.aux2の変更で上書きされる可能性があります。",
+        "このスクリプトの編集を無効化するには、以下の行の「no」を「yes」に変更してください。",
+    ];
+    if !regex!(r"(?m)^--rikky_modoki:disable_further_replacement=(?:yes|no)\r?$").is_match(&content)
+    {
+        content = format!(
+            "--{newline}-- {}{newline}--rikky_modoki:disable_further_replacement=no{newline}--{newline}{content}",
+            ALERT.join(&format!("{newline}-- "))
+        );
+    }
+
     let (encoded, _, errors) = encoding_rs::SHIFT_JIS.encode(&content);
     anyhow::ensure!(!errors, "Script cannot be encoded as Shift-JIS");
     tracing::info!(
@@ -1329,7 +1366,7 @@ struct ParamReplaceRequest {
     index: usize,
 }
 
-fn replace_parameter_with_done_check<F, R, E>(
+fn replace_parameter_with_check<F, R, E>(
     script_name: &str,
     extension: &str,
     index: usize,
@@ -1359,6 +1396,10 @@ where
     result
 }
 
+fn further_replacement_disabled(content: &str) -> bool {
+    lazy_regex::regex!(r"(?m)^--rikky_modoki:disable_further_replacement=yes\r?$").is_match(content)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{expand_dialog, expand_parameter_group};
@@ -1369,8 +1410,7 @@ mod tests {
             REPLACEMENT_VERSION, group_needs_rewrite, read_script, read_script_for_replacement_in,
             replacement_version, script_hash, versioned_script, write_replaced_script_in,
         };
-        let directory =
-            std::env::temp_dir().join(format!("__gi_replacement_{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("replacement_{}", std::process::id()));
         std::fs::create_dir_all(&directory)?;
         let backups = directory.join("backups");
         let read_script_for_replacement =
@@ -1398,7 +1438,7 @@ mod tests {
             assert_eq!(replacement_version(&transformed)?, Some(0));
             write_replaced_script(&path, &transformed)?;
             let current = read_script(&path)?;
-            assert!(current.starts_with(&format!(
+            assert!(current.contains(&format!(
                 "--rikky_modoki:original_hash={hash}{newline}--rikky_modoki:replacement_version={REPLACEMENT_VERSION}{newline}"
             )));
             assert!(!legacy_backup.exists());
@@ -1517,17 +1557,16 @@ mod tests {
 
     #[test]
     fn replacement_failure_can_be_retried() {
-        use super::replace_parameter_with_done_check;
+        use super::replace_parameter_with_check;
         let mut calls = 0;
-        let first: anyhow::Result<()> =
-            replace_parameter_with_done_check("__gi_retry", "anm", 1, || {
-                calls += 1;
-                anyhow::bail!("Missing backup")
-            });
+        let first: anyhow::Result<()> = replace_parameter_with_check("retry", "anm", 1, || {
+            calls += 1;
+            anyhow::bail!("Missing backup")
+        });
         assert!(first.is_err());
         for _ in 0..2 {
             let result: anyhow::Result<()> =
-                replace_parameter_with_done_check("__gi_retry", "anm", 1, || {
+                replace_parameter_with_check("retry", "anm", 1, || {
                     calls += 1;
                     Ok(())
                 });
