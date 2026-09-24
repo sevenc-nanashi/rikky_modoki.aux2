@@ -412,6 +412,9 @@ return function(rikky_module, module)
       return 0, 1, 0
     elseif target == "font" then
       local name, size, style_type, col1, col2, bold, italic = obj.getfont()
+      if name == "" then
+        name = obj.getvalue(obj.layer, "テキスト", "フォント")
+      end
       return {
         name = name,
         size = size,
