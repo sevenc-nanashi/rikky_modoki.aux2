@@ -226,7 +226,7 @@ return function(rikky_module, module)
             ["縁取り文字(細)"] = 4,
             ["縁取り文字(太)"] = 5,
             ["縁取り文字(角)"] = 6,
-          })[obj.getvalue(obj.layer, script_name, "文字種別")],
+          })[obj.getvalue(obj.layer, script_name, "文字装飾")],
           autoadjust = tonumber(obj.getvalue(obj.layer, script_name, "オブジェクトの長さを自動調節")),
           soft = 1,
           monospace = 0,
