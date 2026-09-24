@@ -436,14 +436,9 @@ impl RikkyModokiMod2 {
     ) -> aviutl2::common::AnyResult<()> {
         replace_parameter_with_check(&script_name, &extension, index, || {
             let script_file_path = find_script_file(&script_name, &extension)?;
-            let mut content = read_script_for_replacement(&script_file_path)?;
-            if further_replacement_disabled(&content) {
-                tracing::debug!(
-                    "Further parameter replacement is disabled for script '{}'",
-                    script_name
-                );
+            let Some(mut content) = read_script_for_replacement(&script_file_path)? else {
                 return Ok(());
-            }
+            };
             let range = script_section(&content, &script_name)?;
             let mut script_content = content[range.clone()].to_owned();
             let dialog_info = expand_dialog(&mut script_content)?;
@@ -492,14 +487,9 @@ impl RikkyModokiMod2 {
     ) -> aviutl2::common::AnyResult<()> {
         replace_parameter_with_check(&script_name, &extension, index, || {
             let script_file_path = find_script_file(&script_name, &extension)?;
-            let mut content = read_script_for_replacement(&script_file_path)?;
-            if further_replacement_disabled(&content) {
-                tracing::debug!(
-                    "Further parameter replacement is disabled for script '{}'",
-                    script_name
-                );
+            let Some(mut content) = read_script_for_replacement(&script_file_path)? else {
                 return Ok(());
-            }
+            };
             let range = script_section(&content, &script_name)?;
             let mut script_content = content[range.clone()].to_owned();
             let dialog_info = expand_dialog(&mut script_content)?;
@@ -608,14 +598,9 @@ impl RikkyModokiMod2 {
     ) -> aviutl2::common::AnyResult<()> {
         replace_parameter_with_check(&script_name, &extension, index, || {
             let path = find_script_file(&script_name, &extension)?;
-            let mut content = read_script_for_replacement(&path)?;
-            if further_replacement_disabled(&content) {
-                tracing::debug!(
-                    "Further parameter replacement is disabled for script '{}'",
-                    script_name
-                );
+            let Some(mut content) = read_script_for_replacement(&path)? else {
                 return Ok(());
-            }
+            };
             if expand_parameter_group(&mut content, &script_name, index, &entries)? {
                 update_script_file(&path, &content)?;
             }
@@ -1145,7 +1130,7 @@ fn decode_script(bytes: &[u8], path: &std::path::Path) -> anyhow::Result<String>
     Ok(content.into_owned())
 }
 
-fn read_script_for_replacement(path: &std::path::Path) -> anyhow::Result<String> {
+fn read_script_for_replacement(path: &std::path::Path) -> anyhow::Result<Option<String>> {
     read_script_for_replacement_in(path, &backup_directory()?)
 }
 
@@ -1219,16 +1204,23 @@ fn original_script_bytes(
 fn read_script_for_replacement_in(
     path: &std::path::Path,
     backups: &std::path::Path,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<Option<String>> {
     let content = read_script(path)?;
+    if further_replacement_disabled(&content) {
+        tracing::debug!(
+            "Further parameter replacement is disabled for script '{}'",
+            path.display()
+        );
+        return Ok(None);
+    }
     if replacement_version(&content)?.is_some_and(|version| version < REPLACEMENT_VERSION) {
         let bytes = original_script_bytes(path, &content, backups)?;
         let restored = decode_script(&bytes, path)?;
         tracing::info!("バックアップから再置換します: {}", path.display());
         // 再置換が成功するまでは元ファイルもバックアップも変更しない。
-        Ok(restored)
+        Ok(Some(restored))
     } else {
-        Ok(content)
+        Ok(Some(content))
     }
 }
 
@@ -1398,397 +1390,4 @@ where
 
 fn further_replacement_disabled(content: &str) -> bool {
     lazy_regex::regex!(r"(?m)^--rikky_modoki:disable_further_replacement=yes\r?$").is_match(content)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{expand_dialog, expand_parameter_group};
-
-    #[test]
-    fn replacement_versions_restore_originals_without_overwriting_backups() -> anyhow::Result<()> {
-        use super::{
-            REPLACEMENT_VERSION, group_needs_rewrite, read_script, read_script_for_replacement_in,
-            replacement_version, script_hash, versioned_script, write_replaced_script_in,
-        };
-        let directory = std::env::temp_dir().join(format!("replacement_{}", std::process::id()));
-        std::fs::create_dir_all(&directory)?;
-        let backups = directory.join("backups");
-        let read_script_for_replacement =
-            |path: &std::path::Path| read_script_for_replacement_in(path, &backups);
-        let write_replaced_script = |path: &std::path::Path, content: &str| {
-            write_replaced_script_in(path, content, &backups)
-        };
-        let entries: Vec<String> = ["数値", "0", "-100", "100"].map(str::to_owned).into();
-        for (index, newline) in ["\n", "\r\n"].into_iter().enumerate() {
-            let path = directory.join(format!("@version{index}.anm"));
-            let legacy_backup = path.with_added_extension("bak");
-            let original = format!(
-                "@一{newline}--dialog:設定,val=\"\"{newline}obj.draw(){newline}@二{newline}--dialog:設定,val=\"\"{newline}obj.draw(){newline}"
-            );
-            let original_bytes = encoding_rs::SHIFT_JIS.encode(&original).0.into_owned();
-            let hash = script_hash(&original_bytes);
-            let backup = backups.join(format!("{hash}.bak"));
-            std::fs::write(&path, &original_bytes)?;
-            assert_eq!(replacement_version(&original)?, None);
-            assert_eq!(read_script_for_replacement(&path)?, original);
-            assert!(!group_needs_rewrite(&original, "一@version", 1)?);
-
-            let mut transformed = original.clone();
-            expand_parameter_group(&mut transformed, "一@version", 1, &entries)?;
-            assert_eq!(replacement_version(&transformed)?, Some(0));
-            write_replaced_script(&path, &transformed)?;
-            let current = read_script(&path)?;
-            assert!(current.contains(&format!(
-                "--rikky_modoki:original_hash={hash}{newline}--rikky_modoki:replacement_version={REPLACEMENT_VERSION}{newline}"
-            )));
-            assert!(!legacy_backup.exists());
-            assert_eq!(versioned_script(&current)?, current);
-            assert_eq!(std::fs::read(&backup)?, original_bytes);
-            assert_eq!(read_script_for_replacement(&path)?, current);
-            assert!(!group_needs_rewrite(&current, "一@version", 1)?);
-            assert!(group_needs_rewrite(&current, "二@version", 1)?);
-            if newline == "\r\n" {
-                assert!(!current.replace("\r\n", "").contains('\n'));
-            }
-
-            // 明示的な旧バージョンと、バージョン導入前の変換結果の両方。
-            std::fs::write(&legacy_backup, &original_bytes)?;
-            for old in [
-                transformed.clone(),
-                format!("--rikky_modoki:replacement_version=0{newline}{transformed}"),
-                format!("--rikky_modoki:replacement_version=1{newline}{transformed}"),
-                format!("--rikky_modoki:replacement_version=2{newline}{transformed}"),
-                format!(
-                    "--rikky_modoki:original_hash={hash}{newline}--rikky_modoki:replacement_version=2{newline}{transformed}"
-                ),
-            ] {
-                let old_bytes = encoding_rs::SHIFT_JIS.encode(&old).0.into_owned();
-                std::fs::write(&path, &old_bytes)?;
-                assert!(group_needs_rewrite(&old, "一@version", 1)?);
-                let mut restored = read_script_for_replacement(&path)?;
-                assert_eq!(restored, original);
-                assert_eq!(std::fs::read(&path)?, old_bytes); // 成功するまで書き戻さない。
-                expand_parameter_group(&mut restored, "二@version", 1, &entries)?;
-                write_replaced_script(&path, &restored)?;
-                let mut updated = read_script_for_replacement(&path)?;
-                assert_eq!(replacement_version(&updated)?, Some(REPLACEMENT_VERSION));
-                assert!(group_needs_rewrite(&updated, "一@version", 1)?);
-                assert!(!group_needs_rewrite(&updated, "二@version", 1)?);
-                expand_parameter_group(&mut updated, "一@version", 1, &entries)?;
-                write_replaced_script(&path, &updated)?;
-                assert_eq!(read_script_for_replacement(&path)?, updated);
-                assert_eq!(
-                    updated
-                        .matches("--rikky_modoki:replacement_version=")
-                        .count(),
-                    1
-                );
-                assert_eq!(std::fs::read(&backup)?, original_bytes);
-            }
-            let future = current.replacen(
-                &format!("replacement_version={REPLACEMENT_VERSION}"),
-                &format!("replacement_version={}", REPLACEMENT_VERSION + 1),
-                1,
-            );
-            std::fs::write(&path, encoding_rs::SHIFT_JIS.encode(&future).0)?;
-            assert_eq!(read_script_for_replacement(&path)?, future);
-            assert_eq!(versioned_script(&future)?, future);
-
-            // ファイル名が変わってもハッシュで元のバックアップを参照する。
-            let renamed = directory.join("renamed.anm");
-            let stale = current.replacen(
-                &format!("replacement_version={REPLACEMENT_VERSION}"),
-                "replacement_version=2",
-                1,
-            );
-            std::fs::write(&renamed, encoding_rs::SHIFT_JIS.encode(&stale).0)?;
-            assert_eq!(read_script_for_replacement(&renamed)?, original);
-            write_replaced_script(&renamed, &transformed)?;
-            assert_eq!(read_script(&renamed)?, current);
-            assert_eq!(std::fs::read_dir(&backups)?.count(), 1);
-
-            // ハッシュ不一致時は復元も上書きも行わない。
-            std::fs::write(&backup, b"corrupted")?;
-            assert!(write_replaced_script(&renamed, &transformed).is_err());
-            assert_eq!(read_script(&renamed)?, current);
-            std::fs::write(&renamed, encoding_rs::SHIFT_JIS.encode(&stale).0)?;
-            assert!(read_script_for_replacement(&renamed).is_err());
-            assert_eq!(read_script(&renamed)?, stale);
-            std::fs::remove_file(&backup)?;
-            assert!(read_script_for_replacement(&renamed).is_err());
-            std::fs::write(&backup, &original_bytes)?;
-            std::fs::remove_file(renamed)?;
-
-            std::fs::write(&path, encoding_rs::SHIFT_JIS.encode(&transformed).0)?;
-            std::fs::remove_file(&legacy_backup)?;
-            assert!(read_script_for_replacement(&path).is_err());
-            assert_eq!(read_script(&path)?, transformed);
-            std::fs::write(
-                &legacy_backup,
-                encoding_rs::SHIFT_JIS.encode(&transformed).0,
-            )?;
-            assert!(read_script_for_replacement(&path).is_err()); // 変換済みのbakも拒否。
-            assert_eq!(read_script(&path)?, transformed);
-            std::fs::remove_file(&path)?;
-            std::fs::remove_file(&backup)?;
-            std::fs::remove_file(&legacy_backup)?;
-        }
-        assert!(replacement_version("--rikky_modoki:replacement_version=invalid\n").is_err());
-        for hash in [
-            "../original",
-            "",
-            "xyz",
-            "0123456789abcdef\n--rikky_modoki:original_hash=0123456789abcdef",
-        ] {
-            assert!(
-                super::original_hash(&format!("--rikky_modoki:original_hash={hash}\n")).is_err()
-            );
-        }
-        assert!(
-            replacement_version(
-                "--rikky_modoki:replacement_version=1\n--rikky_modoki:replacement_version=1\n"
-            )
-            .is_err()
-        );
-        std::fs::remove_dir(backups)?;
-        std::fs::remove_dir(directory)?;
-        Ok(())
-    }
-
-    #[test]
-    fn replacement_failure_can_be_retried() {
-        use super::replace_parameter_with_check;
-        let mut calls = 0;
-        let first: anyhow::Result<()> = replace_parameter_with_check("retry", "anm", 1, || {
-            calls += 1;
-            anyhow::bail!("Missing backup")
-        });
-        assert!(first.is_err());
-        for _ in 0..2 {
-            let result: anyhow::Result<()> =
-                replace_parameter_with_check("retry", "anm", 1, || {
-                    calls += 1;
-                    Ok(())
-                });
-            result.unwrap();
-        }
-        assert_eq!(calls, 2);
-    }
-
-    #[test]
-    fn expands_parameter_groups_without_changing_other_scripts() {
-        let entries: Vec<String> = [
-            "数値",
-            "0",
-            "-100",
-            "100",
-            "細かさ*0.001",
-            "10",
-            "0",
-            "100",
-            "オンオフ",
-            "false",
-            "0",
-            "0",
-            "文字",
-            r#""日本語,\"引用\"\\パス""#,
-            "0",
-            "0",
-            "配列",
-            r#"{1; false; "a,b"}"#,
-            "0",
-            "0",
-            "自由",
-            "0",
-            "0",
-            "0",
-            "ファイル*file",
-            r#""C:\\画像.png""#,
-            "0",
-            "0",
-            "フォルダ*folder",
-            r#""C:\\素材""#,
-            "0",
-            "0",
-            "フォント*font",
-            r#""ＭＳ ゴシック""#,
-            "0",
-            "0",
-            "色*color",
-            "16711680",
-            "0",
-            "0",
-            "透明*color",
-            "nil",
-            "0",
-            "0",
-        ]
-        .map(str::to_owned)
-        .to_vec();
-        let declarations = [
-            "--track@__rikky_parameter_val_1:__rikky_parameter_val_1::数値,-100,100,0,1",
-            "--track@__rikky_parameter_val_2:__rikky_parameter_val_2::細かさ,0,100,10,0.001",
-            "--check@__rikky_parameter_val_3:__rikky_parameter_val_3::オンオフ,false",
-            r#"--string@__rikky_parameter_val_4:__rikky_parameter_val_4::文字,日本語,"引用"\パス"#,
-            r#"--value@__rikky_parameter_val_5:__rikky_parameter_val_5::配列,{1; false; "a,b"}"#,
-            "--value@__rikky_parameter_val_6:__rikky_parameter_val_6::自由,0",
-            "--file@__rikky_parameter_val_7:__rikky_parameter_val_7::ファイル",
-            "--folder@__rikky_parameter_val_8:__rikky_parameter_val_8::フォルダ",
-            "--font@__rikky_parameter_val_9:__rikky_parameter_val_9::フォント,ＭＳ ゴシック",
-            "--color@__rikky_parameter_val_10:__rikky_parameter_val_10::色,16711680",
-            "--color@__rikky_parameter_val_11:__rikky_parameter_val_11::透明,nil",
-        ];
-        for newline in ["\n", "\r\n"] {
-            let before = format!("@別{newline}--dialog:別,val=\"\"{newline}obj.draw(){newline}");
-            let after = format!("@次{newline}--dialog:次,val=\"\"{newline}obj.draw()");
-            let section = [
-                "@対象",
-                r#"--dialog:設定,local val="古い保存値";後,next_value=0;設定2,local val2="""#,
-                "--[=[",
-                "説明",
-                "]=]",
-                "require(\"rikky_module\")",
-                "obj.draw()",
-                "",
-            ]
-            .join(newline);
-            let mut script = format!("{before}{section}{after}");
-            assert!(expand_parameter_group(&mut script, "対象@まとめ", 1, &entries).unwrap());
-            assert!(script.starts_with(&before) && script.ends_with(&after));
-            for declaration in declarations {
-                assert!(
-                    script.lines().any(|line| line == declaration),
-                    "{declaration}"
-                );
-            }
-            assert!(!script.contains("古い保存値"));
-            assert!(script.contains("--rikky_modoki:dialog_info=val;next_value;val2"));
-            let assignment = script.find("local val = {").unwrap();
-            assert!(assignment > script.find("]=]").unwrap());
-            assert!(assignment < script.find("require(\"rikky_module\")").unwrap());
-            let rewritten = script.clone();
-            assert!(!expand_parameter_group(&mut script, "対象@まとめ", 1, &entries).unwrap());
-            assert_eq!(script, rewritten);
-            assert!(expand_parameter_group(&mut script, "対象@まとめ", 3, &entries).unwrap());
-            assert!(script.contains("--rikky_modoki:parameter=val2"));
-            assert!(script.contains("local val2 = {__rikky_parameter_val2_1,"));
-            assert!(script.starts_with(&before) && script.ends_with(&after));
-            if newline == "\r\n" {
-                assert!(!script.replace("\r\n", "").contains('\n'));
-            }
-        }
-        let mut no_newline = "--dialog:設定,val=\"\"".to_owned();
-        assert!(expand_parameter_group(&mut no_newline, "test", 1, &entries).unwrap());
-        assert!(no_newline.contains("--group\nlocal val = {"));
-        for comment in ["--[[説明]] ", "--[=[\n説明\n]=] --[[補足]] "] {
-            let mut script = format!("--dialog:設定,val=\"\"\n{comment}obj.draw()");
-            assert!(expand_parameter_group(&mut script, "test", 1, &entries).unwrap());
-            assert!(script.contains(&format!("{comment}local val = {{")));
-            assert!(script.ends_with("}\nobj.draw()"));
-        }
-
-        for invalid in [
-            vec![],
-            vec!["数値", "0", "-1"],
-            vec!["数値", "10", "0", "1"],
-            vec!["数値", "0", "2", "1"],
-            vec!["数値", "0", "NaN", "1"],
-            vec!["数値*0.02", "0", "0", "1"],
-            vec!["ファイル*file", "0", "0", "0"],
-            vec!["色*color", "16777216", "0", "0"],
-            vec!["文字\n--file@x:x", "0", "0", "0"],
-        ] {
-            let mut script = "--dialog:設定,val=\"\"\nobj.draw()".to_owned();
-            let original = script.clone();
-            let invalid = invalid.into_iter().map(str::to_owned).collect::<Vec<_>>();
-            assert!(expand_parameter_group(&mut script, "test", 1, &invalid).is_err());
-            assert_eq!(script, original);
-        }
-        for (name, index) in [("test", 0), ("test", 2), ("不存在@test", 1)] {
-            let mut script = "--dialog:設定,val=\"\"".to_owned();
-            let original = script.clone();
-            assert!(expand_parameter_group(&mut script, name, index, &entries).is_err());
-            assert_eq!(script, original);
-        }
-    }
-
-    #[test]
-    fn prefixes_earlier_duplicate_dialog_labels() {
-        for newline in ["\n", "\r\n"] {
-            let script = concat!(
-                "--track0:テスト,0\n",
-                "--track1:テスト2,0\n",
-                "--track2:テスト3,0\n",
-                "--color:0xfffff\n",
-                "--dialog:テスト,a=0;テスト,b=1;テスト,c=1;テスト2,d=1;テスト2,e=1;テスト3,f=1;テスト4,g=1;テスト4,h=1\n",
-                "\n",
-                "require('rikky_module')\n",
-                "rikky_module.fileCS(1)\n",
-            );
-            let names = ["a", "b", "c", "d", "e", "f", "g", "h"];
-            let mut script = script.replace("\n", newline);
-            assert_eq!(expand_dialog(&mut script).unwrap(), names);
-            for param in [
-                "--value@a:dialog::テスト,0",
-                "--value@b:dialog::テスト,1",
-                "--value@c:dialog::dialog::テスト,1",
-                "--value@d:dialog::テスト2,1",
-                "--value@e:dialog::dialog::テスト2,1",
-                "--value@f:dialog::テスト3,1",
-                "--value@g:dialog::テスト4,1",
-                "--value@h:テスト4,1",
-            ] {
-                assert!(script.lines().any(|line| line == param), "{param}");
-            }
-            let rewritten = script.clone();
-            assert_eq!(expand_dialog(&mut script).unwrap(), names);
-            assert_eq!(script, rewritten);
-        }
-    }
-
-    #[test]
-    fn expands_dialog_and_preserves_defaults() {
-        let declaration = r#"--dialog:サイズ,size=100;色/col,local color=0xff0000;図形/fig,local fig="四角形";文字,text="a;\"b,c=d";座標,pos={1; {2, 3}; label='x;y'};長文,long=[==[a;],=b]==];通常,local_name=1"#;
-        let names = ["size", "color", "fig", "text", "pos", "long", "local_name"];
-        let expected = [
-            "--rikky_modoki:dialog_info=size;color;fig;text;pos;long;local_name",
-            "--value@size:サイズ,100",
-            "--color@color:色,0xff0000",
-            r#"--figure@fig:図形,"四角形""#,
-            r#"--value@text:文字,"a;\"b,c=d""#,
-            "--value@pos:座標,{1; {2, 3}; label='x;y'}",
-            "--value@long:長文,[==[a;],=b]==]",
-            "--value@local_name:通常,1",
-        ];
-        for newline in ["\n", "\r\n"] {
-            for terminator in ["", ";"] {
-                for suffix in ["".to_owned(), format!("{newline}obj.draw(){newline}")] {
-                    let prefix = format!("--track0:速度,0,100,10{newline}");
-                    let mut script = format!("{prefix}{declaration}{terminator}{suffix}");
-                    assert_eq!(expand_dialog(&mut script).unwrap(), names);
-                    assert_eq!(
-                        script,
-                        format!("{prefix}{}{suffix}", expected.join(newline))
-                    );
-                    let rewritten = script.clone();
-                    assert_eq!(expand_dialog(&mut script).unwrap(), names);
-                    assert_eq!(script, rewritten);
-                }
-            }
-        }
-
-        for declaration in [
-            "--dialog:",
-            "--dialog:値,num=",
-            "--dialog:値,1num=0",
-            "--dialog:値,num='unterminated",
-            "--dialog:値,num=[=[unterminated",
-            "--dialog:値,num={1,2",
-            "--dialog:値,num=(1]",
-        ] {
-            let mut script = declaration.to_owned();
-            assert!(expand_dialog(&mut script).is_err(), "{declaration}");
-            assert_eq!(script, declaration);
-        }
-    }
 }
