@@ -3,3 +3,7 @@
 "cargo:cargo-edit" = "latest"
 "github:EmbarkStudios/cargo-about" = "latest"
 "github:karoterra/aviutl2-aulua" = "latest"
+stylua = "latest"
+
+[tasks]
+format = "stylua ./src/**/*.lua --indent-type spaces --indent-width 2"
