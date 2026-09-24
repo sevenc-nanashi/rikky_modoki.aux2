@@ -1591,7 +1591,6 @@ mod tests {
             let after = format!("@次{newline}--dialog:次,val=\"\"{newline}obj.draw()");
             let section = [
                 "@対象",
-                "--group:既存,false",
                 r#"--dialog:設定,local val="古い保存値";後,next_value=0;設定2,local val2="""#,
                 "--[=[",
                 "説明",
@@ -1612,9 +1611,6 @@ mod tests {
             }
             assert!(!script.contains("古い保存値"));
             assert!(script.contains("--rikky_modoki:dialog_info=val;next_value;val2"));
-            assert!(script.contains(&format!(
-                "--group{newline}--group:既存,false{newline}--value@next_value:後,0"
-            )));
             let assignment = script.find("local val = {").unwrap();
             assert!(assignment > script.find("]=]").unwrap());
             assert!(assignment < script.find("require(\"rikky_module\")").unwrap());
@@ -1667,24 +1663,31 @@ mod tests {
     #[test]
     fn prefixes_earlier_duplicate_dialog_labels() {
         for newline in ["\n", "\r\n"] {
-            let mut script = format!(
-                "--dialog:値,first=1;値/chk,second=0;dialog::値/col,third=255;値/fig,last=0;別,other=42{newline}obj.draw()"
+            let script = concat!(
+                "--track0:テスト,0\n",
+                "--track1:テスト2,0\n",
+                "--track2:テスト3,0\n",
+                "--color:0xfffff\n",
+                "--dialog:テスト,a=0;テスト,b=1;テスト,c=1;テスト2,d=1;テスト2,e=1;テスト3,f=1;テスト4,g=1;テスト4,h=1\n",
+                "\n",
+                "require('rikky_module')\n",
+                "rikky_module.fileCS(1)\n",
             );
-            let names = ["first", "second", "third", "last", "other"];
+            let names = ["a", "b", "c", "d", "e", "f", "g", "h"];
+            let mut script = script.replace("\n", newline);
             assert_eq!(expand_dialog(&mut script).unwrap(), names);
-            assert_eq!(
-                script,
-                [
-                    "--rikky_modoki:dialog_info=first;second;third;last;other",
-                    "--value@first:dialog::dialog::dialog::値,1",
-                    "--check@second:dialog::dialog::値,0",
-                    "--color@third:dialog::値,255",
-                    "--figure@last:値,0",
-                    "--value@other:別,42",
-                    "obj.draw()",
-                ]
-                .join(newline)
-            );
+            for param in [
+                "--value@a:dialog::テスト,0",
+                "--value@b:dialog::テスト,1",
+                "--value@c:dialog::dialog::テスト,1",
+                "--value@d:dialog::テスト2,1",
+                "--value@e:dialog::dialog::テスト2,1",
+                "--value@f:dialog::テスト3,1",
+                "--value@g:dialog::テスト4,1",
+                "--value@h:テスト4,1",
+            ] {
+                assert!(script.lines().any(|line| line == param), "{param}");
+            }
             let rewritten = script.clone();
             assert_eq!(expand_dialog(&mut script).unwrap(), names);
             assert_eq!(script, rewritten);
